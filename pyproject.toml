@@ -1,12 +1,12 @@
 [project]
 name = "lms-project-1"
 version = "0.1.0"
-description = "Add your description here"
+description = "Mini LMS - Nền tảng học trực tuyến thu nhỏ (IAW301 Project)"
 readme = "README.md"
 authors = [
     { name = "CuongRevival", email = "trainingsession495@gmail.com" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.13"
 dependencies = []
 
 [project.scripts]
