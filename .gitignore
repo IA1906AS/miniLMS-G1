@@ -1,9 +1,28 @@
-.coverage
-.mypy_cache/
-.pip-audit-cache/
-.pytest_cache/
-.ruff_cache/
-.uv-cache/
-.venv/
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+.venv/
+env/
+venv/
+ENV/
+
+# Testing & Coverage
+.coverage
+.coverage.*
+htmlcov/
 coverage.xml
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pip-audit-cache/
+.uv-cache/
+
+# Distribution / Build
+dist/
+build/
+*.egg-info/
