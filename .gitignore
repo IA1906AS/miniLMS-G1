@@ -1,0 +1,9 @@
+.coverage
+.mypy_cache/
+.pip-audit-cache/
+.pytest_cache/
+.ruff_cache/
+.uv-cache/
+.venv/
+__pycache__/
+coverage.xml
