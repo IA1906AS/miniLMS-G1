@@ -1,1 +1,0 @@
-# miniLMS-G1
