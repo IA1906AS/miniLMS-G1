@@ -68,6 +68,6 @@ Thêm dòng sau vào đầu file `README.md` để hiển thị huy hiệu trạ
 - [x] Lệnh `uv run mypy` báo `Success: no issues found`.
 - [x] Lệnh `uv run pytest` chạy vượt qua toàn bộ unit tests.
 - [x] `uv run pre-commit run --all-files` vượt qua toàn bộ các hooks.
-- [ ] Mã nguồn và workflow `.github/workflows/ci.yml` đã push lên GitHub.
-- [ ] Tab **Actions** trên GitHub chạy thành công (xanh) trên nhánh `main`.
+- [x] Mã nguồn và workflow `.github/workflows/ci.yml` đã push lên GitHub.
+- [x] Tab **Actions** trên GitHub chạy thành công (xanh) trên nhánh `main`.
 - [ ] Thử nghiệm PR lỗi bị CI phát hiện thành công.
