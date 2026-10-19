@@ -59,15 +59,22 @@ IAW301-Project_Group_1/
 ├── src/
 │   └── lms_project_1/
 │       ├── __init__.py        # Điểm khởi chạy chính của ứng dụng
-│       ├── calculator.py      # Module mẫu tiện ích & tính toán
-│       └── py.typed           # Đánh dấu hỗ trợ kiểu dữ liệu (PEP 561)
+│       ├── audit.py           # Module kiểm toán và log thao tác
+│       ├── auth.py            # Module xác thực người dùng
+│       ├── errors.py          # Định nghĩa lỗi hệ thống
+│       ├── gate.py            # Cổng kiểm soát truy cập và bảo vệ API
+│       ├── guards.py          # Ràng buộc điều kiện và kiểm tra quyền
+│       ├── schemas.py         # Mô hình dữ liệu và lược đồ
+│       ├── services.py        # Logic nghiệp vụ chính
+│       └── store.py           # Quản lý lưu trữ và dữ liệu
 ├── tests/
-│   ├── test_basic.py          # Kiểm thử cơ bản hàm main
-│   └── test_calculator.py     # Bộ kiểm thử cho module calculator
+│   └── test_basic.py          # Kiểm thử cơ bản hàm main
 ├── .gitignore                 # Danh sách các tệp/thư mục bỏ qua khi commit
 ├── .pre-commit-config.yaml    # Cấu hình Git Hook tự động chạy Ruff & Mypy
 ├── .python-version            # Khóa phiên bản Python (3.14)
 ├── pyproject.toml             # Cấu hình dự án, gói phụ thuộc và các công cụ
+├── requirements.txt           # Danh sách các gói phụ thuộc
+├── seed.json                  # Dữ liệu khởi tạo ban đầu
 ├── uv.lock                    # Khóa phiên bản dependencies chính xác
 └── README.md                  # Tài liệu giới thiệu và hướng dẫn dự án
 ```
