@@ -42,11 +42,7 @@ def _format_user(raw_user: Any) -> dict[str, str] | None:
         user_id = str(raw_user.get("id", ""))
         email = str(raw_user.get("email", ""))
         role = str(raw_user.get("role", ""))
-    elif (
-        hasattr(raw_user, "id")
-        and hasattr(raw_user, "email")
-        and hasattr(raw_user, "role")
-    ):
+    elif hasattr(raw_user, "id") and hasattr(raw_user, "email") and hasattr(raw_user, "role"):
         user_id = str(getattr(raw_user, "id", ""))
         email = str(getattr(raw_user, "email", ""))
         role = str(getattr(raw_user, "role", ""))
@@ -135,9 +131,7 @@ def _lookup_user_in_store(user_id: str) -> dict[str, str] | None:
             except Exception:
                 pass
 
-        users_mod = getattr(store_mod, "users", None) or getattr(
-            store_mod, "USERS", None
-        )
+        users_mod = getattr(store_mod, "users", None) or getattr(store_mod, "USERS", None)
         if isinstance(users_mod, dict):
             has_active_store = True
             if user_id in users_mod:
