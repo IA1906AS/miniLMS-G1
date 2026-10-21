@@ -135,6 +135,80 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
 
         return jsonify(result), 200
 
+    # 9. Home & Dashboard Endpoints
+    @app.route("/home", methods=["GET"])
+    @app.route("/api/home", methods=["GET"])
+    def get_home() -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        dashboard = services.get_home_dashboard(actor, store=store)
+        return jsonify(dashboard), 200
+
+    # 10. Account & Profile Endpoints
+    @app.route("/account/profile", methods=["GET"])
+    @app.route("/api/account/profile", methods=["GET"])
+    def get_account_profile() -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        account_data = services.get_account_data(actor, store=store)
+        return jsonify(account_data), 200
+
+    @app.route("/account/profile", methods=["PUT"])
+    @app.route("/api/account/profile", methods=["PUT"])
+    def put_account_profile() -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        validated = schemas.validate_update_profile_payload(body)
+        updated = services.update_profile(actor, validated, store=store)
+        return jsonify({"message": "Cập nhật hồ sơ thành công", "profile": updated}), 200
+
+    @app.route("/account/change-password", methods=["PUT"])
+    @app.route("/api/account/change-password", methods=["PUT"])
+    def put_account_password() -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        old_pwd, new_pwd = schemas.validate_change_password_payload(body)
+        services.change_password(actor, old_pwd, new_pwd, store=store)
+        return jsonify({"message": "Đổi mật khẩu thành công"}), 200
+
+    @app.route("/account/notifications", methods=["PUT"])
+    @app.route("/api/account/notifications", methods=["PUT"])
+    def put_account_notifications() -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        validated = schemas.validate_notifications_payload(body)
+        updated = services.update_notifications(actor, validated, store=store)
+        return (
+            jsonify({"message": "Cài đặt thông báo đã được lưu", "notifications": updated}),
+            200,
+        )
+
     return app
 
 

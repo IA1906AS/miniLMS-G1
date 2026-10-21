@@ -1,20 +1,141 @@
 {
   "users": [
-    { "id": "u1", "email": "admin@lms.test", "password": "Lms@2026", "role": "ADMIN" },
-    { "id": "u2", "email": "an.gv@lms.test", "password": "Lms@2026", "role": "INSTRUCTOR" },
-    { "id": "u3", "email": "binh.gv@lms.test", "password": "Lms@2026", "role": "INSTRUCTOR" },
-    { "id": "u4", "email": "chi.sv@lms.test", "password": "Lms@2026", "role": "STUDENT" },
-    { "id": "u5", "email": "dung.sv@lms.test", "password": "Lms@2026", "role": "STUDENT" },
-    { "id": "u6", "email": "em.sv@lms.test", "password": "Lms@2026", "role": "STUDENT" }
+    {
+      "id": "u1",
+      "email": "admin@lms.test",
+      "password": "Lms@2026",
+      "role": "ADMIN",
+      "fullName": "Quản Trị Viên Hệ Thống",
+      "phone": "0901234567",
+      "bio": "Quản trị viên cấp cao miniLMS",
+      "avatarUrl": "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150"
+    },
+    {
+      "id": "u2",
+      "email": "an.gv@lms.test",
+      "password": "Lms@2026",
+      "role": "INSTRUCTOR",
+      "fullName": "ThS. Nguyễn Văn An",
+      "phone": "0912345678",
+      "bio": "Giảng viên bộ môn Phát triển Ứng dụng Web & Bảo mật An toàn Thông tin",
+      "avatarUrl": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150"
+    },
+    {
+      "id": "u3",
+      "email": "binh.gv@lms.test",
+      "password": "Lms@2026",
+      "role": "INSTRUCTOR",
+      "fullName": "TS. Trần Thị Bình",
+      "phone": "0923456789",
+      "bio": "Chuyên gia Hệ thống Cơ sở dữ liệu phân tán & Tối ưu hóa truy vấn",
+      "avatarUrl": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150"
+    },
+    {
+      "id": "u4",
+      "email": "chi.sv@lms.test",
+      "password": "Lms@2026",
+      "role": "STUDENT",
+      "fullName": "Lê Linh Chi",
+      "phone": "0934567890",
+      "bio": "Sinh viên ngành Kỹ thuật Phần mềm, đam mê lập trình Web Fullstack",
+      "avatarUrl": "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150"
+    },
+    {
+      "id": "u5",
+      "email": "dung.sv@lms.test",
+      "password": "Lms@2026",
+      "role": "STUDENT",
+      "fullName": "Phạm Quốc Dũng",
+      "phone": "0945678901",
+      "bio": "Sinh viên ngành An toàn Thông tin (IA1906AS)",
+      "avatarUrl": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150"
+    },
+    {
+      "id": "u6",
+      "email": "em.sv@lms.test",
+      "password": "Lms@2026",
+      "role": "STUDENT",
+      "fullName": "Hoàng Thị Ánh Em",
+      "phone": "0956789012",
+      "bio": "Sinh viên chuyên ngành Hệ thống Thông tin quản lý",
+      "avatarUrl": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150"
+    }
   ],
   "courses": [
-    { "id": "c1", "title": "Lập trình Web", "instructorId": "u2" },
-    { "id": "c2", "title": "Cơ sở dữ liệu", "instructorId": "u3" }
+    {
+      "id": "c1",
+      "title": "Lập trình Web",
+      "instructorId": "u2",
+      "description": "Xây dựng ứng dụng web hiện đại từ frontend đến backend, chuẩn kiến trúc RESTful API.",
+      "thumbnail": "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600",
+      "durationHours": 30,
+      "isFeatured": true,
+      "lessons": [
+        { "id": "c1-l1", "title": "Bài 1: Giới thiệu Kiến trúc Ứng dụng Web & REST" },
+        { "id": "c1-l2", "title": "Bài 2: Thiết kế RESTful API với Flask & Blueprint" },
+        { "id": "c1-l3", "title": "Bài 3: Xác thực JWT & Cơ chế Phân quyền RBAC" },
+        { "id": "c1-l4", "title": "Bài 4: Tích hợp Frontend React & Quản trị Trạng thái" }
+      ]
+    },
+    {
+      "id": "c2",
+      "title": "Cơ sở dữ liệu",
+      "instructorId": "u3",
+      "description": "Thiết kế chuẩn hóa cơ sở dữ liệu quan hệ, tối ưu chỉ mục và xử lý N+1 truy vấn.",
+      "thumbnail": "https://images.unsplash.com/photo-1544383835-bda2bc66a55d?w=600",
+      "durationHours": 45,
+      "isFeatured": true,
+      "lessons": [
+        { "id": "c2-l1", "title": "Bài 1: Mô hình Thực thể Quan hệ & Chuẩn hóa 3NF" },
+        { "id": "c2-l2", "title": "Bài 2: Viết câu lệnh truy vấn SQL nâng cao & Aggregation" },
+        { "id": "c2-l3", "title": "Bài 3: Chỉ mục B-Tree và Tối ưu hóa Kế hoạch Thực thi" },
+        { "id": "c2-l4", "title": "Bài 4: Kỹ thuật chống N+1 Query trong ORM" }
+      ]
+    },
+    {
+      "id": "c3",
+      "title": "An toàn Ứng dụng Web (IAW301)",
+      "instructorId": "u2",
+      "description": "Các kỹ thuật phòng chống OWASP Top 10, kiểm soát truy cập phân tầng (Defense-in-Depth).",
+      "thumbnail": "https://images.unsplash.com/photo-1563986768609-322da13575f3?w=600",
+      "durationHours": 36,
+      "isFeatured": true,
+      "lessons": [
+        { "id": "c3-l1", "title": "Bài 1: Tổng quan Mô hình Phòng thủ Đa tầng (Defense in Depth)" },
+        { "id": "c3-l2", "title": "Bài 2: Kiểm soát Xác thực & Phòng chống Brute-Force" },
+        { "id": "c3-l3", "title": "Bài 3: Chống Khai thác IDOR / BOLA và Phân quyền Đối tượng" },
+        { "id": "c3-l4", "title": "Bài 4: Audit Logging & Giám sát An ninh Hệ thống" }
+      ]
+    }
   ],
   "enrollments": [
-    { "courseId": "c1", "studentId": "u4", "score": 7.5 },
-    { "courseId": "c1", "studentId": "u5", "score": 8.0 },
-    { "courseId": "c2", "studentId": "u5", "score": 6.0 },
-    { "courseId": "c2", "studentId": "u6", "score": 9.0 }
+    {
+      "courseId": "c1",
+      "studentId": "u4",
+      "score": 7.5,
+      "enrolledAt": "2026-02-15",
+      "completedLessons": ["c1-l1", "c1-l2"]
+    },
+    {
+      "courseId": "c1",
+      "studentId": "u5",
+      "score": 8.0,
+      "enrolledAt": "2026-02-16",
+      "completedLessons": ["c1-l1", "c1-l2", "c1-l3"]
+    },
+    {
+      "courseId": "c2",
+      "studentId": "u5",
+      "score": 6.0,
+      "enrolledAt": "2026-02-20",
+      "completedLessons": ["c2-l1"]
+    },
+    {
+      "courseId": "c2",
+      "studentId": "u6",
+      "score": 9.0,
+      "enrolledAt": "2026-02-18",
+      "completedLessons": ["c2-l1", "c2-l2", "c2-l3", "c2-l4"]
+    }
   ]
 }

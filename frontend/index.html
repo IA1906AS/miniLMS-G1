@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>miniLMS - Nền tảng học trực tuyến</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    [x-cloak] { display: none !important; }
+  </style>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+</head>
+<body class="bg-slate-50/60 min-h-screen text-slate-900" x-data="lmsApp()" x-init="init()">
+
+  <!-- 1. AUTH SCREEN (Khi chưa đăng nhập) -->
+  <div x-show="!token" class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-indigo-900 via-slate-900 to-violet-950">
+    <div class="max-w-md w-full bg-white/95 backdrop-blur-xl p-8 rounded-3xl shadow-2xl border border-white/20">
+      <div class="text-center mb-8">
+        <div class="w-12 h-12 mx-auto rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 mb-3">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+        </div>
+        <h2 class="text-2xl font-extrabold text-slate-900">miniLMS Portal</h2>
+        <p class="text-sm text-slate-500 mt-1">Đăng nhập tài khoản để vào Trang chủ</p>
+      </div>
+
+      <div x-show="authError" class="mb-4 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold" x-text="authError"></div>
+
+      <form @submit.prevent="login()" class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Email</label>
+          <input type="email" x-model="loginEmail" required class="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-hidden" placeholder="chi.sv@lms.test">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-700 mb-1">Mật khẩu</label>
+          <input type="password" x-model="loginPassword" required class="w-full px-4 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-hidden" placeholder="Lms@2026">
+        </div>
+        <button type="submit" :disabled="authLoading" class="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-sm transition shadow-md shadow-indigo-500/20">
+          <span x-show="!authLoading">Đăng nhập</span>
+          <span x-show="authLoading">Đang xác thực...</span>
+        </button>
+      </form>
+
+      <div class="mt-6 pt-4 border-t border-slate-200 text-center">
+        <p class="text-xs text-slate-500 mb-2">Tài khoản thử nghiệm sẵn có:</p>
+        <div class="flex flex-wrap gap-1.5 justify-center">
+          <button @click="loginEmail='chi.sv@lms.test'; loginPassword='Lms@2026'" class="text-[11px] bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg text-slate-700 font-medium">Học viên: chi.sv</button>
+          <button @click="loginEmail='an.gv@lms.test'; loginPassword='Lms@2026'" class="text-[11px] bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg text-slate-700 font-medium">Giảng viên: an.gv</button>
+          <button @click="loginEmail='admin@lms.test'; loginPassword='Lms@2026'" class="text-[11px] bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg text-slate-700 font-medium">Admin: admin</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. MAIN APPLICATION (Khi đã đăng nhập) -->
+  <div x-show="token" x-cloak>
+    
+    <!-- Navbar -->
+    <header class="sticky top-0 z-50 backdrop-blur-md bg-white/85 border-b border-slate-200/80 shadow-xs">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div class="flex items-center space-x-3 cursor-pointer" @click="currentView='home'">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-md shadow-indigo-200">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+          </div>
+          <span class="font-bold text-xl bg-gradient-to-r from-slate-900 to-slate-700 bg-clip-text text-transparent">miniLMS</span>
+        </div>
+
+        <nav class="flex items-center space-x-2 sm:space-x-4">
+          <button @click="currentView='home'" :class="currentView==='home' ? 'bg-indigo-50 text-indigo-600 font-bold' : 'text-slate-600 hover:text-slate-900 font-medium'" class="px-3.5 py-1.5 rounded-xl text-sm transition">Trang chủ</button>
+          <button @click="currentView='account'; loadAccount()" :class="currentView==='account' ? 'bg-indigo-50 text-indigo-600 font-bold' : 'text-slate-600 hover:text-slate-900 font-medium'" class="px-3.5 py-1.5 rounded-xl text-sm transition">Tài khoản</button>
+        </nav>
+
+        <div class="flex items-center space-x-3">
+          <img :src="user.avatarUrl" class="w-9 h-9 rounded-full object-cover ring-2 ring-indigo-500/20">
+          <div class="hidden sm:block text-left">
+            <p class="text-sm font-semibold text-slate-800 leading-none" x-text="user.fullName"></p>
+            <span class="inline-block mt-0.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600" x-text="user.role"></span>
+          </div>
+          <button @click="logout()" title="Đăng xuất" class="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition ml-2">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- VIEW 1: HOME PAGE -->
+    <main x-show="currentView==='home'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-8 space-y-10 pb-16">
+      
+      <!-- Hero Section -->
+      <section class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-indigo-700 via-indigo-600 to-violet-600 p-8 sm:p-10 text-white shadow-xl shadow-indigo-950/10">
+        <div class="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+          <div class="space-y-2 max-w-2xl">
+            <div class="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-white/15 backdrop-blur-md text-xs font-semibold tracking-wide">
+              <span>✨ Chào mừng bạn quay trở lại!</span>
+            </div>
+            <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight">Xin chào, <span x-text="user.fullName"></span>! 👋</h1>
+            <p class="text-indigo-100 text-sm sm:text-base leading-relaxed">Hôm nay là một ngày tuyệt vời để bứt phá kỹ năng mới. Hãy tiếp tục các bài học đang dang dở nhé!</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Stats Grid -->
+      <section class="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        <div class="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-xs">
+          <span class="text-xs sm:text-sm font-medium text-slate-500">Khóa học hoàn thành</span>
+          <p class="text-3xl font-bold text-slate-900 mt-2" x-text="stats.completedCourses || 0"></p>
+        </div>
+        <div class="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-xs">
+          <span class="text-xs sm:text-sm font-medium text-slate-500">Đang theo học</span>
+          <p class="text-3xl font-bold text-indigo-600 mt-2" x-text="stats.inProgressCourses || 0"></p>
+        </div>
+        <div class="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-xs">
+          <span class="text-xs sm:text-sm font-medium text-slate-500">Tổng giờ tích lũy</span>
+          <p class="text-3xl font-bold text-amber-600 mt-2"><span x-text="stats.totalHours || 0"></span>h</p>
+        </div>
+        <div class="p-5 rounded-2xl bg-white border border-slate-200/80 shadow-xs">
+          <span class="text-xs sm:text-sm font-medium text-slate-500">Chứng chỉ đạt được</span>
+          <p class="text-3xl font-bold text-rose-600 mt-2" x-text="stats.certificates || 0"></p>
+        </div>
+      </section>
+
+      <!-- Enrolled Courses -->
+      <section class="space-y-4">
+        <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Khóa học của bạn</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <template x-for="course in enrolledCourses" :key="course.id">
+            <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs hover:shadow-lg transition flex flex-col justify-between">
+              <div>
+                <div class="relative h-44">
+                  <img :src="course.thumbnail" class="w-full h-full object-cover">
+                  <span class="absolute top-3 right-3 text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-900/70 text-white" x-text="course.progress + '% hoàn thành'"></span>
+                </div>
+                <div class="p-5 space-y-3">
+                  <h3 class="font-bold text-lg text-slate-900" x-text="course.title"></h3>
+                  <p class="text-xs text-slate-500">Giảng viên: <span class="font-medium text-slate-700" x-text="course.instructor"></span></p>
+                  
+                  <!-- Progress bar -->
+                  <div class="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div class="h-full bg-gradient-to-r from-indigo-500 to-emerald-500 rounded-full transition-all duration-500" :style="`width: ${course.progress}%`"></div>
+                  </div>
+
+                  <p class="text-xs text-indigo-600 flex items-center space-x-1.5 pt-1">
+                    <span>▶</span>
+                    <span class="truncate" x-text="course.nextLessonTitle"></span>
+                  </p>
+                </div>
+              </div>
+              <div class="p-5 pt-0">
+                <button class="w-full py-2.5 px-4 rounded-xl bg-indigo-50 text-indigo-600 font-semibold text-sm hover:bg-indigo-600 hover:text-white transition">Tiếp tục học &rarr;</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+
+      <!-- Featured / Recommended Courses -->
+      <section class="space-y-4">
+        <h2 class="text-xl sm:text-2xl font-bold text-slate-900">Khóa học gợi ý</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <template x-for="course in featuredCourses" :key="course.id">
+            <div class="bg-white rounded-2xl border border-slate-200 p-4 hover:shadow-lg transition flex flex-col justify-between space-y-3">
+              <div class="space-y-2">
+                <img :src="course.thumbnail" class="w-full h-40 object-cover rounded-xl">
+                <span class="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full uppercase" x-show="course.isFeatured">Nổi bật</span>
+                <h4 class="font-bold text-slate-800" x-text="course.title"></h4>
+                <p class="text-xs text-slate-500 line-clamp-2" x-text="course.description"></p>
+              </div>
+              <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
+                <span class="text-xs text-slate-500 font-medium" x-text="course.duration"></span>
+                <button class="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-indigo-600 text-white font-medium text-xs transition">Đăng ký ngay</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+    </main>
+
+    <!-- VIEW 2: ACCOUNT PAGE -->
+    <main x-show="currentView==='account'" class="max-w-5xl mx-auto px-4 sm:px-6 mt-8 space-y-6 pb-16">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900">Quản lý Tài khoản</h1>
+        <p class="text-sm text-slate-500 mt-1">Cập nhật hồ sơ cá nhân, bảo mật và tùy chọn hệ thống.</p>
+      </div>
+
+      <div x-show="accountMsg.text" :class="accountMsg.type==='success' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-rose-50 text-rose-700 border-rose-200'" class="p-4 rounded-xl border text-sm font-semibold" x-text="accountMsg.text"></div>
+
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col md:flex-row">
+        <!-- Tab menu -->
+        <div class="w-full md:w-64 border-b md:border-b-0 md:border-r border-slate-200 bg-slate-50/50 p-4 space-y-1">
+          <button @click="accountTab='profile'" :class="accountTab==='profile' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100 font-medium'" class="w-full text-left px-3.5 py-2.5 rounded-xl text-sm transition">Thông tin cá nhân</button>
+          <button @click="accountTab='security'" :class="accountTab==='security' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100 font-medium'" class="w-full text-left px-3.5 py-2.5 rounded-xl text-sm transition">Đổi mật khẩu</button>
+          <button @click="accountTab='history'" :class="accountTab==='history' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100 font-medium'" class="w-full text-left px-3.5 py-2.5 rounded-xl text-sm transition">Lịch sử học tập</button>
+          <button @click="accountTab='notifications'" :class="accountTab==='notifications' ? 'bg-indigo-600 text-white font-semibold' : 'text-slate-600 hover:bg-slate-100 font-medium'" class="w-full text-left px-3.5 py-2.5 rounded-xl text-sm transition">Cài đặt thông báo</button>
+        </div>
+
+        <!-- Tab contents -->
+        <div class="flex-1 p-6 sm:p-8">
+          
+          <!-- TAB 1: PROFILE -->
+          <div x-show="accountTab==='profile'">
+            <form @submit.prevent="saveProfile()" class="space-y-4">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Họ và tên</label>
+                  <input type="text" x-model="profileForm.fullName" required class="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm">
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Email (Cố định)</label>
+                  <input type="email" :value="profileForm.email" disabled class="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-100 text-slate-500 text-sm cursor-not-allowed">
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Số điện thoại</label>
+                  <input type="tel" x-model="profileForm.phone" class="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm">
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Tiểu sử (Bio)</label>
+                  <textarea rows="3" x-model="profileForm.bio" class="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm"></textarea>
+                </div>
+              </div>
+              <button type="submit" class="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-semibold hover:bg-indigo-700 transition">Lưu thay đổi</button>
+            </form>
+          </div>
+
+          <!-- TAB 2: PASSWORD -->
+          <div x-show="accountTab==='security'">
+            <form @submit.prevent="changePassword()" class="space-y-4 max-w-md">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Mật khẩu hiện tại</label>
+                <input type="password" x-model="passwordForm.oldPassword" required class="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Mật khẩu mới (Tối thiểu 8 ký tự)</label>
+                <input type="password" x-model="passwordForm.newPassword" required minlength="8" class="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Xác nhận mật khẩu mới</label>
+                <input type="password" x-model="passwordForm.confirmPassword" required class="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm">
+              </div>
+              <button type="submit" class="px-5 py-2.5 bg-slate-900 text-white rounded-xl text-sm font-semibold hover:bg-indigo-600 transition">Đổi mật khẩu</button>
+            </form>
+          </div>
+
+          <!-- TAB 3: HISTORY -->
+          <div x-show="accountTab==='history'" class="space-y-4">
+            <h3 class="font-bold text-slate-800 text-base">Lịch sử đăng ký & điểm số</h3>
+            <table class="w-full text-left text-sm border border-slate-200 rounded-xl overflow-hidden">
+              <thead class="bg-slate-50 border-b text-xs uppercase text-slate-500 font-bold">
+                <tr><th class="p-3">Khóa học</th><th class="p-3">Ngày đăng ký</th><th class="p-3">Trạng thái</th><th class="p-3">Điểm số</th></tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <template x-for="item in history" :key="item.courseId">
+                  <tr>
+                    <td class="p-3 font-semibold text-slate-800" x-text="item.courseTitle"></td>
+                    <td class="p-3 text-slate-500" x-text="item.enrolledAt"></td>
+                    <td class="p-3"><span class="px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700" x-text="item.status"></span></td>
+                    <td class="p-3 font-bold text-slate-700" x-text="item.score"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- TAB 4: NOTIFICATIONS -->
+          <div x-show="accountTab==='notifications'" class="space-y-4">
+            <h3 class="font-bold text-slate-800 text-base">Tùy chọn Email</h3>
+            <div class="space-y-3">
+              <label class="flex items-center justify-between p-3.5 border rounded-xl cursor-pointer">
+                <span class="text-sm font-semibold text-slate-700">Thông báo khóa học mới</span>
+                <input type="checkbox" x-model="notifications.emailNewCourses" @change="saveNotifications()" class="w-5 h-5 accent-indigo-600">
+              </label>
+              <label class="flex items-center justify-between p-3.5 border rounded-xl cursor-pointer">
+                <span class="text-sm font-semibold text-slate-700">Thông báo bài tập & hạn nộp</span>
+                <input type="checkbox" x-model="notifications.emailAssignments" @change="saveNotifications()" class="w-5 h-5 accent-indigo-600">
+              </label>
+              <label class="flex items-center justify-between p-3.5 border rounded-xl cursor-pointer">
+                <span class="text-sm font-semibold text-slate-700">Cập nhật điểm số khi giảng viên công bố</span>
+                <input type="checkbox" x-model="notifications.emailGradeUpdates" @change="saveNotifications()" class="w-5 h-5 accent-indigo-600">
+              </label>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </main>
+
+  </div>
+
+  <script>
+    function lmsApp() {
+      return {
+        token: localStorage.getItem('accessToken') || '',
+        currentView: 'home',
+        authLoading: false,
+        authError: '',
+        loginEmail: 'chi.sv@lms.test',
+        loginPassword: 'Lms@2026',
+        user: {},
+        stats: {},
+        enrolledCourses: [],
+        featuredCourses: [],
+        accountTab: 'profile',
+        accountMsg: { type: '', text: '' },
+        profileForm: {},
+        passwordForm: { oldPassword: '', newPassword: '', confirmPassword: '' },
+        history: [],
+        notifications: {},
+
+        init() {
+          if (this.token) {
+            this.loadHome();
+          }
+        },
+
+        async login() {
+          this.authLoading = true;
+          this.authError = '';
+          try {
+            const res = await fetch('/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: this.loginEmail, password: this.loginPassword })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Đăng nhập thất bại');
+            this.token = data.accessToken;
+            localStorage.setItem('accessToken', this.token);
+            this.loadHome();
+          } catch (e) {
+            this.authError = e.message;
+          } finally {
+            this.authLoading = false;
+          }
+        },
+
+        logout() {
+          this.token = '';
+          localStorage.removeItem('accessToken');
+        },
+
+        async apiFetch(url, options = {}) {
+          const res = await fetch(url, {
+            ...options,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${this.token}`,
+              ...(options.headers || {})
+            }
+          });
+          if (res.status === 401) {
+            this.logout();
+            throw new Error('Hết phiên đăng nhập');
+          }
+          return res.json();
+        },
+
+        async loadHome() {
+          try {
+            const data = await this.apiFetch('/home');
+            this.user = data.user || {};
+            this.stats = data.stats || {};
+            this.enrolledCourses = data.enrolledCourses || [];
+            this.featuredCourses = data.featuredCourses || [];
+          } catch (err) {
+            console.error(err);
+          }
+        },
+
+        async loadAccount() {
+          this.accountMsg = { type: '', text: '' };
+          try {
+            const data = await this.apiFetch('/account/profile');
+            this.profileForm = data.profile || {};
+            this.history = data.history || [];
+            this.notifications = data.notifications || {};
+          } catch (err) {
+            console.error(err);
+          }
+        },
+
+        async saveProfile() {
+          try {
+            await this.apiFetch('/account/profile', {
+              method: 'PUT',
+              body: JSON.stringify({
+                fullName: this.profileForm.fullName,
+                phone: this.profileForm.phone,
+                bio: this.profileForm.bio,
+                avatarUrl: this.profileForm.avatarUrl
+              })
+            });
+            this.accountMsg = { type: 'success', text: 'Cập nhật thông tin thành công!' };
+            this.user.fullName = this.profileForm.fullName;
+          } catch (err) {
+            this.accountMsg = { type: 'error', text: 'Không thể lưu hồ sơ' };
+          }
+        },
+
+        async changePassword() {
+          if (this.passwordForm.newPassword !== this.passwordForm.confirmPassword) {
+            this.accountMsg = { type: 'error', text: 'Mật khẩu mới không khớp' };
+            return;
+          }
+          try {
+            const res = await this.apiFetch('/account/change-password', {
+              method: 'PUT',
+              body: JSON.stringify({
+                oldPassword: this.passwordForm.oldPassword,
+                newPassword: this.passwordForm.newPassword
+              })
+            });
+            if (res.error) throw new Error(res.error);
+            this.accountMsg = { type: 'success', text: 'Đổi mật khẩu thành công!' };
+            this.passwordForm = { oldPassword: '', newPassword: '', confirmPassword: '' };
+          } catch (err) {
+            this.accountMsg = { type: 'error', text: 'Mật khẩu cũ không chính xác hoặc không hợp lệ' };
+          }
+        },
+
+        async saveNotifications() {
+          await this.apiFetch('/account/notifications', {
+            method: 'PUT',
+            body: JSON.stringify(this.notifications)
+          });
+        }
+      }
+    }
+  </script>
+</body>
+</html>

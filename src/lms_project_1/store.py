@@ -56,21 +56,56 @@ class Store:
             salt = bcrypt.gensalt(rounds=10)
             pwd_hash = bcrypt.hashpw(plain_pwd.encode("utf-8"), salt).decode("utf-8")
 
+            email = str(u["email"]).strip().lower()
+            default_name = email.split("@")[0].replace(".", " ").title()
+
             user_record: dict[str, Any] = {
                 "id": str(u["id"]),
-                "email": str(u["email"]).strip().lower(),
+                "email": email,
                 "role": str(u["role"]),
                 "password_hash": pwd_hash,
+                "fullName": str(u.get("fullName") or default_name),
+                "phone": str(u.get("phone", "")),
+                "bio": str(u.get("bio", "")),
+                "avatarUrl": str(
+                    u.get("avatarUrl")
+                    or "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150"
+                ),
+                "notifications": dict(
+                    u.get(
+                        "notifications",
+                        {
+                            "emailNewCourses": True,
+                            "emailAssignments": True,
+                            "emailGradeUpdates": True,
+                        },
+                    )
+                ),
             }
             self.users[user_record["id"]] = user_record
             self.users_by_email[user_record["email"]] = user_record
 
         raw_courses = data.get("courses", [])
         for c in raw_courses:
+            course_id = str(c["id"])
+            default_lessons = [
+                {"id": f"{course_id}-l1", "title": "Bài 1: Giới thiệu & Tổng quan"},
+                {"id": f"{course_id}-l2", "title": "Bài 2: Cài đặt môi trường"},
+                {"id": f"{course_id}-l3", "title": "Bài 3: Kiến thức cốt lõi"},
+                {"id": f"{course_id}-l4", "title": "Bài 4: Thực hành & Đồ án"},
+            ]
             course_record: dict[str, Any] = {
-                "id": str(c["id"]),
+                "id": course_id,
                 "title": str(c.get("title", "")),
                 "instructorId": str(c.get("instructorId", "")),
+                "description": str(c.get("description", "")),
+                "thumbnail": str(
+                    c.get("thumbnail")
+                    or "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600"
+                ),
+                "durationHours": int(c.get("durationHours", 30)),
+                "isFeatured": bool(c.get("isFeatured", False)),
+                "lessons": list(c.get("lessons", default_lessons)),
             }
             self.courses[course_record["id"]] = course_record
 
@@ -79,10 +114,15 @@ class Store:
             course_id = str(e["courseId"])
             student_id = str(e["studentId"])
             score = float(e["score"])
+            default_completed = (
+                [f"{course_id}-l1", f"{course_id}-l2"] if score >= 7.0 else [f"{course_id}-l1"]
+            )
             enrollment_record: dict[str, Any] = {
                 "courseId": course_id,
                 "studentId": student_id,
                 "score": score,
+                "enrolledAt": str(e.get("enrolledAt", "2026-02-15")),
+                "completedLessons": list(e.get("completedLessons", default_completed)),
             }
             self.enrollments[(course_id, student_id)] = enrollment_record
 
@@ -136,6 +176,215 @@ class Store:
         old_score = float(rec["score"])
         rec["score"] = float(new_score)
         return dict(rec), old_score
+
+    def get_user_profile(self, user_id: str) -> dict[str, Any] | None:
+        """Retrieve sanitized profile for user_id (no password hash)."""
+        user = self.users.get(user_id)
+        if not user:
+            return None
+        return {
+            "id": user["id"],
+            "email": user["email"],
+            "role": user["role"],
+            "fullName": user["fullName"],
+            "phone": user["phone"],
+            "bio": user["bio"],
+            "avatarUrl": user["avatarUrl"],
+            "notifications": dict(user["notifications"]),
+        }
+
+    def update_user_profile(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Safely update editable user profile fields.
+
+        Enforces Defense in Depth: strictly prevents modification of id, email, role,
+        or password_hash.
+        """
+        user = self.users.get(user_id)
+        if not user:
+            raise KeyError(f"User '{user_id}' not found")
+
+        if "fullName" in payload:
+            user["fullName"] = str(payload["fullName"]).strip()
+        if "phone" in payload:
+            user["phone"] = str(payload["phone"]).strip()
+        if "bio" in payload:
+            user["bio"] = str(payload["bio"]).strip()
+        if "avatarUrl" in payload:
+            user["avatarUrl"] = str(payload["avatarUrl"]).strip()
+
+        return self.get_user_profile(user_id) or {}
+
+    def update_user_password(self, user_id: str, old_password: str, new_password: str) -> None:
+        """Safely change user password after verifying current password against bcrypt hash."""
+        from lms_project_1.errors import InvalidCredentials, NotFound
+
+        user = self.users.get(user_id)
+        if not user:
+            raise NotFound(f"User '{user_id}' not found")
+
+        current_hash = user["password_hash"]
+        if not bcrypt.checkpw(old_password.encode("utf-8"), current_hash.encode("utf-8")):
+            raise InvalidCredentials("Mật khẩu hiện tại không chính xác")
+
+        salt = bcrypt.gensalt(rounds=10)
+        new_hash = bcrypt.hashpw(new_password.encode("utf-8"), salt).decode("utf-8")
+        user["password_hash"] = new_hash
+
+    def update_user_notifications(self, user_id: str, settings: dict[str, Any]) -> dict[str, bool]:
+        """Update user notification preferences."""
+        from lms_project_1.errors import NotFound
+
+        user = self.users.get(user_id)
+        if not user:
+            raise NotFound(f"User '{user_id}' not found")
+
+        notifs = user["notifications"]
+        for key in ("emailNewCourses", "emailAssignments", "emailGradeUpdates"):
+            if key in settings:
+                notifs[key] = bool(settings[key])
+
+        return dict(notifs)
+
+    def get_home_dashboard(self, user_id: str) -> dict[str, Any]:
+        """Retrieve complete home dashboard data in a single pass (Zero N+1 Query)."""
+        from lms_project_1.errors import NotFound
+
+        user = self.users.get(user_id)
+        if not user:
+            raise NotFound(f"User '{user_id}' not found")
+
+        # 1. Single pass over user enrollments
+        enrolled_courses: list[dict[str, Any]] = []
+        enrolled_course_ids: set[str] = set()
+        total_completed = 0
+        total_hours = 0
+
+        for (c_id, s_id), rec in self.enrollments.items():
+            if s_id != user_id:
+                continue
+
+            enrolled_course_ids.add(c_id)
+            course = self.courses.get(c_id, {})
+            instructor_id = course.get("instructorId", "")
+            instructor = self.users.get(instructor_id, {})
+            instructor_name = instructor.get("fullName") or instructor.get("email", "Giảng viên")
+
+            lessons = course.get("lessons", [])
+            completed_lessons = set(rec.get("completedLessons", []))
+            total_lessons_cnt = len(lessons)
+            completed_cnt = len(completed_lessons)
+
+            if total_lessons_cnt > 0:
+                progress_pct = round(completed_cnt / total_lessons_cnt * 100)
+            else:
+                progress_pct = 100 if rec["score"] >= 5.0 else 0
+
+            is_completed = (progress_pct >= 100) or (rec["score"] >= 8.5)
+            if is_completed:
+                total_completed += 1
+                total_hours += course.get("durationHours", 30)
+            else:
+                total_hours += int(course.get("durationHours", 30) * (progress_pct / 100))
+
+            # Next lesson calculation
+            next_lesson_id = ""
+            next_lesson_title = "Hoàn thành toàn bộ khóa học"
+            for lesson in lessons:
+                if lesson["id"] not in completed_lessons:
+                    next_lesson_id = lesson["id"]
+                    next_lesson_title = lesson["title"]
+                    break
+
+            enrolled_courses.append(
+                {
+                    "id": c_id,
+                    "title": course.get("title", ""),
+                    "thumbnail": course.get("thumbnail", ""),
+                    "instructor": instructor_name,
+                    "progress": progress_pct,
+                    "isCompleted": is_completed,
+                    "score": rec["score"],
+                    "nextLessonId": next_lesson_id,
+                    "nextLessonTitle": next_lesson_title,
+                }
+            )
+
+        # 2. Featured / Recommended courses (user has not enrolled)
+        featured_courses: list[dict[str, Any]] = []
+        for c_id, course in self.courses.items():
+            if c_id in enrolled_course_ids:
+                continue
+            inst = self.users.get(course.get("instructorId", ""), {})
+            inst_name = inst.get("fullName") or inst.get("email", "Giảng viên miniLMS")
+            featured_courses.append(
+                {
+                    "id": c_id,
+                    "title": course.get("title", ""),
+                    "description": course.get("description", ""),
+                    "thumbnail": course.get("thumbnail", ""),
+                    "instructor": inst_name,
+                    "duration": f"{course.get('durationHours', 30)} giờ",
+                    "isFeatured": course.get("isFeatured", False),
+                }
+            )
+
+        return {
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "role": user["role"],
+                "fullName": user["fullName"],
+                "avatarUrl": user["avatarUrl"],
+            },
+            "stats": {
+                "completedCourses": total_completed,
+                "inProgressCourses": len(enrolled_courses) - total_completed,
+                "totalHours": total_hours,
+                "certificates": total_completed,
+            },
+            "enrolledCourses": enrolled_courses,
+            "featuredCourses": featured_courses,
+        }
+
+    def get_account_data(self, user_id: str) -> dict[str, Any]:
+        """Retrieve profile, learning history, and notification settings for account page."""
+        from lms_project_1.errors import NotFound
+
+        user = self.users.get(user_id)
+        if not user:
+            raise NotFound(f"User '{user_id}' not found")
+
+        # Build learning history
+        history: list[dict[str, Any]] = []
+        for (c_id, s_id), rec in self.enrollments.items():
+            if s_id != user_id:
+                continue
+            course = self.courses.get(c_id, {})
+            score = rec["score"]
+            is_completed = score >= 8.5
+            history.append(
+                {
+                    "courseId": c_id,
+                    "courseTitle": course.get("title", "Khóa học"),
+                    "enrolledAt": rec.get("enrolledAt", "2026-02-15"),
+                    "status": "Đã hoàn thành" if is_completed else "Đang học",
+                    "score": score,
+                }
+            )
+
+        return {
+            "profile": {
+                "id": user["id"],
+                "email": user["email"],
+                "role": user["role"],
+                "fullName": user["fullName"],
+                "phone": user["phone"],
+                "bio": user["bio"],
+                "avatarUrl": user["avatarUrl"],
+            },
+            "history": history,
+            "notifications": dict(user["notifications"]),
+        }
 
 
 def load_store(seed_path: str | Path | None = None) -> Store:
