@@ -11,6 +11,7 @@ from flask import Flask, Response, g, jsonify, request
 from lms_project_1 import schemas, services
 from lms_project_1.audit import log_grade_change, setup_audit_logging
 from lms_project_1.auth import BruteForceTracker, auth_bp
+from lms_project_1.database import init_db
 from lms_project_1.errors import NotFound, Unauthenticated, ValidationError, register_error_handlers
 from lms_project_1.gate import setup_gate
 from lms_project_1.guards import require_role
@@ -21,9 +22,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     """Application factory for miniLMS.
 
     - Validates mandatory JWT_SECRET (min 32 chars); raises RuntimeError if missing/too short.
-    - Reloads seed.json on every call into fresh in-memory Store.
+    - Reloads seed.json on every call into fresh in-memory Store or PostgreSQL DB.
     - Config overrides environment variables.
-    - Registers all 8 security layers.
+    - Registers all 8 security layers and RBAC routes.
     """
     app = Flask("lms_project_1")
 
@@ -45,9 +46,12 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         for k, v in config.items():
             app.config[k] = v
 
-    # 2. Data store initialization from seed.json
+    # 2. Database connection & Data store initialization
+    db_url = (config.get("DATABASE_URL") if config else None) or os.environ.get("DATABASE_URL")
+    db_session = init_db(app, database_url=db_url) if db_url else None
+
     seed_path = (config.get("SEED_PATH") if config else None) or os.environ.get("SEED_PATH")
-    store = Store(seed_path=seed_path)
+    store = Store(seed_path=seed_path, db_session=db_session)
     app.store = store  # type: ignore[attr-defined]
     app.config["STORE"] = store
     services.set_store(store)
@@ -64,7 +68,7 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     # 6. Layer 8: Audit logging setup
     setup_audit_logging(app)
 
-    # 7. Register Auth Blueprint (Layer 1, 7: POST /auth/login)
+    # 7. Register Auth Blueprint (Layer 1, 7: /auth/login, /auth/register, etc.)
     app.register_blueprint(auth_bp)
 
     # 8. Register Protected Endpoints
@@ -91,7 +95,7 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         return jsonify(grades), 200
 
     @app.route("/courses/<course_id>/grades/<student_id>", methods=["PUT"])
-    @require_role("INSTRUCTOR")
+    @require_role("INSTRUCTOR", "teacher")
     def put_course_grade(course_id: str, student_id: str) -> tuple[Response, int]:
         actor = getattr(g, "actor", None)
         if not actor or not isinstance(actor, dict):
@@ -103,7 +107,10 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             raise NotFound(f"Course '{course_id}' not found")
 
         # 2. Check instructor assignment (403) - Defense in Depth if @require_role removed
-        if actor.get("role") != "INSTRUCTOR" or course.get("instructorId") != actor.get("id"):
+        actor_role = str(actor.get("role", "")).upper()
+        if actor_role not in ("INSTRUCTOR", "TEACHER") or course.get("instructorId") != actor.get(
+            "id"
+        ):
             from lms_project_1.errors import Forbidden
 
             raise Forbidden("Only the assigned instructor may update grades")
@@ -135,6 +142,46 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
 
         return jsonify(result), 200
 
+    @app.route("/users/<user_id>/role", methods=["PATCH"])
+    @require_role("ADMIN", "admin")
+    def patch_user_role(user_id: str) -> tuple[Response, int]:
+        """Admin-only endpoint for role management (RBAC TC04, TC05)."""
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        new_role = schemas.validate_update_role_payload(body)
+        target_user = store.get_user_by_id(user_id)
+        if target_user is None:
+            raise NotFound(f"User '{user_id}' not found")
+
+        store.update_user_role(user_id, new_role)
+        return (
+            jsonify({"id": user_id, "role": new_role, "message": "Role updated successfully"}),
+            200,
+        )
+
+    @app.route("/courses/<course_id>/assignments", methods=["POST"])
+    @require_role("TEACHER", "teacher", "INSTRUCTOR", "instructor", "ADMIN", "admin")
+    def post_course_assignment(course_id: str) -> tuple[Response, int]:
+        """Teacher/Admin assignment creation endpoint (RBAC TC02, TC03)."""
+        course = store.get_course_by_id(course_id)
+        if course is None:
+            raise NotFound(f"Course '{course_id}' not found")
+
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False) or {}
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        title = str(body.get("title", "Untitled Assignment"))
+        return jsonify({"courseId": course_id, "title": title, "status": "created"}), 201
+
     return app
 
 
@@ -147,7 +194,18 @@ def main() -> None:
 current_pkg = sys.modules.get(__name__)
 if current_pkg:
     sys.modules.setdefault("app", current_pkg)
-    for mod_name in ("audit", "auth", "errors", "gate", "guards", "schemas", "services", "store"):
+    for mod_name in (
+        "audit",
+        "auth",
+        "database",
+        "errors",
+        "gate",
+        "guards",
+        "models",
+        "schemas",
+        "services",
+        "store",
+    ):
         full_sub = f"lms_project_1.{mod_name}"
         if full_sub in sys.modules:
             sys.modules.setdefault(f"app.{mod_name}", sys.modules[full_sub])

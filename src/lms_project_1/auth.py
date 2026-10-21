@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import hashlib
+import secrets
 import time
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import bcrypt
 import jwt
 from flask import Blueprint, Response, current_app, jsonify, request
+
+from lms_project_1 import schemas
 
 
 # Authentication and validation exception classes (compatible with Layer 6 error handling)
@@ -82,12 +87,14 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(user_id: str, secret: str, ttl_seconds: int = 900) -> str:
-    """Generate a signed JWT token containing strictly sub, iat, and exp.
-
-    Role and course relationships are not included and must be looked up from
-    the store per request.
-    """
+def create_access_token(
+    user_id: str,
+    secret: str,
+    ttl_seconds: int = 900,
+    role: str | None = None,
+    email: str | None = None,
+) -> str:
+    """Generate a signed JWT access token containing sub, iat, exp, and optional role/email."""
     if not secret or len(secret) < 32:
         raise RuntimeError("JWT_SECRET must be configured and >= 32 characters")
 
@@ -96,6 +103,25 @@ def create_access_token(user_id: str, secret: str, ttl_seconds: int = 900) -> st
         "sub": user_id,
         "iat": now,
         "exp": now + ttl_seconds,
+    }
+    if role:
+        payload["role"] = role
+    if email:
+        payload["email"] = email
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def create_refresh_token(user_id: str, secret: str, ttl_days: int = 7) -> str:
+    """Generate a signed JWT refresh token valid for 7-30 days."""
+    if not secret or len(secret) < 32:
+        raise RuntimeError("JWT_SECRET must be configured and >= 32 characters")
+
+    now = int(time.time())
+    payload: dict[str, Any] = {
+        "sub": user_id,
+        "type": "refresh",
+        "iat": now,
+        "exp": now + (ttl_days * 86400),
     }
     return jwt.encode(payload, secret, algorithm="HS256")
 
@@ -215,13 +241,67 @@ def authenticate_token(
     return {"id": user_id}
 
 
+@auth_bp.post("/register")
+def register() -> tuple[Response, int]:
+    """POST /auth/register endpoint (Section 3.1 & TC01, TC02).
+
+    Validates {email, password, full_name, role?}.
+    Rejects duplicate email with 400 Bad Request.
+    Persists user with bcrypt password hash and role 'guest' by default.
+    Returns 201 Created without sensitive fields.
+    """
+    if not request.is_json:
+        raise ValidationError("Request body must be JSON")
+
+    try:
+        body = request.get_json(silent=False)
+    except Exception as exc:
+        raise ValidationError("Malformed JSON") from exc
+
+    validated_data = schemas.validate_register_payload(body)
+    email = validated_data["email"]
+    password = validated_data["password"]
+    full_name = validated_data["full_name"]
+    role = validated_data.get("role", "guest")
+
+    store: Any = current_app.config.get("STORE")
+    if not store:
+        raise AppError("Data store not configured")
+
+    # TC02: Email uniqueness check
+    existing_user = store.get_user_by_email(email)
+    if existing_user is not None:
+        raise ValidationError("Email already registered")
+
+    pwd_hash = hash_password(password)
+    user = store.create_user(
+        email=email,
+        password_hash=pwd_hash,
+        full_name=full_name,
+        role=role,
+        is_active=True,
+        is_verified=False,
+    )
+
+    return jsonify(
+        {
+            "id": user["id"],
+            "email": user["email"],
+            "full_name": user["full_name"],
+            "role": user["role"],
+            "is_active": user["is_active"],
+            "is_verified": user["is_verified"],
+        }
+    ), 201
+
+
 @auth_bp.post("/login")
 def login() -> tuple[Response, int]:
-    """POST /auth/login endpoint.
+    """POST /auth/login endpoint (Section 3.2 & TC03, TC04).
 
     Validates payload {email, password}, applies brute-force rate-limiting,
     verifies credentials with constant-time protection, and returns
-    200 {accessToken, expiresIn}.
+    200 {accessToken, refreshToken, expiresIn, user}.
     """
     if not request.is_json:
         raise ValidationError("Request body must be JSON")
@@ -254,7 +334,6 @@ def login() -> tuple[Response, int]:
         raise RuntimeError("JWT_SECRET must be configured and >= 32 characters")
 
     # Layer 7: Brute force lockout check
-    # Locked accounts return 429 even when the password is correct
     if tracker.is_locked(email):
         raise AccountLocked("Account is temporarily locked")
 
@@ -274,5 +353,119 @@ def login() -> tuple[Response, int]:
     # Login successful: reset failed attempt counter
     tracker.record_success(email)
 
-    token = create_access_token(user["id"], secret=secret, ttl_seconds=ttl)
-    return jsonify({"accessToken": token, "expiresIn": ttl}), 200
+    access_token = create_access_token(
+        user["id"],
+        secret=secret,
+        ttl_seconds=ttl,
+        role=user.get("role"),
+        email=user.get("email"),
+    )
+    refresh_token = create_refresh_token(user["id"], secret=secret)
+
+    return jsonify(
+        {
+            "accessToken": access_token,
+            "refreshToken": refresh_token,
+            "expiresIn": ttl,
+            "user": {
+                "id": user["id"],
+                "email": user["email"],
+                "full_name": user.get("full_name", ""),
+                "role": user.get("role", "guest"),
+            },
+        }
+    ), 200
+
+
+@auth_bp.post("/forgot-password")
+def forgot_password() -> tuple[Response, int]:
+    """POST /auth/forgot-password endpoint (Section 3.3).
+
+    Accepts {email}. Generates a cryptographically secure random reset token,
+    hashes the token using SHA-256, and saves it with a 15-minute expiration.
+    Returns generic success message to prevent user enumeration.
+    """
+    if not request.is_json:
+        raise ValidationError("Request body must be JSON")
+
+    try:
+        body = request.get_json(silent=False)
+    except Exception as exc:
+        raise ValidationError("Malformed JSON") from exc
+
+    email = schemas.validate_forgot_password_payload(body)
+    store: Any = current_app.config.get("STORE")
+
+    reset_token: str | None = None
+    if store:
+        user = store.get_user_by_email(email)
+        if user is not None:
+            # Generate 32-byte secure random string
+            raw_token = secrets.token_urlsafe(32)
+            token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+            expires_at = datetime.now(UTC) + timedelta(minutes=15)
+            store.create_password_reset_token(
+                user_id=user["id"],
+                token_hash=token_hash,
+                expires_at=expires_at,
+            )
+            reset_token = raw_token
+
+    response_payload: dict[str, Any] = {
+        "message": "If the email is registered, a password reset link has been sent."
+    }
+    # For testing and dev convenience, include token when in TESTING or DEBUG mode
+    if current_app.config.get("TESTING") and reset_token:
+        response_payload["resetToken"] = reset_token
+
+    return jsonify(response_payload), 200
+
+
+@auth_bp.post("/reset-password")
+def reset_password() -> tuple[Response, int]:
+    """POST /auth/reset-password endpoint (Section 3.3 & TC05, TC06).
+
+    Accepts {token, new_password}.
+    Validates token existence, expiration, and unused status.
+    Updates hashed password, marks token as used, and returns 200 OK.
+    """
+    if not request.is_json:
+        raise ValidationError("Request body must be JSON")
+
+    try:
+        body = request.get_json(silent=False)
+    except Exception as exc:
+        raise ValidationError("Malformed JSON") from exc
+
+    token, new_password = schemas.validate_reset_password_payload(body)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    store: Any = current_app.config.get("STORE")
+    if not store:
+        raise AppError("Data store not configured")
+
+    token_rec = store.get_password_reset_token(token_hash)
+    if token_rec is None:
+        raise ValidationError("Invalid or expired reset token")
+
+    # TC06: Check if token has already been used
+    if token_rec.get("is_used"):
+        raise ValidationError("Reset token has already been used")
+
+    # Check token expiration
+    expires_at = token_rec.get("expires_at")
+    if expires_at is not None and isinstance(expires_at, datetime):
+        now = datetime.now(UTC)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if now > expires_at:
+            raise ValidationError("Reset token has expired")
+
+    # Update user password with new hash
+    new_hash = hash_password(new_password)
+    store.update_user_password(token_rec["user_id"], new_hash)
+
+    # Invalidate reset token
+    store.mark_password_reset_token_used(token_rec["id"])
+
+    return jsonify({"message": "Password has been successfully reset."}), 200

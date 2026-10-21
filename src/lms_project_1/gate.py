@@ -14,9 +14,15 @@ from typing import Any
 import jwt
 from flask import Flask, Response, current_app, g, jsonify, make_response, request
 
-# The only allowlisted endpoint is POST /auth/login
+# Public endpoints allowlisted from global bearer token requirement
 ALLOWLIST_METHOD = "POST"
 ALLOWLIST_PATH = "/auth/login"
+PUBLIC_AUTH_ENDPOINTS: set[tuple[str, str]] = {
+    ("POST", "/auth/login"),
+    ("POST", "/auth/register"),
+    ("POST", "/auth/forgot-password"),
+    ("POST", "/auth/reset-password"),
+}
 
 # Fallback seed users for when store is not yet initialized or during standalone testing
 DEFAULT_SEED_USERS: dict[str, dict[str, str]] = {
@@ -183,8 +189,10 @@ def gate_before_request() -> Response | None:
     - Populates request context (g.actor, g.user, g.current_user).
     - Returns 401 UNAUTHENTICATED on any verification failure.
     """
-    # 1. Allowlist check: POST /auth/login ONLY
+    # 1. Allowlist check: public auth endpoints
     req_path = request.path.rstrip("/") or "/"
+    if (request.method.upper(), req_path) in PUBLIC_AUTH_ENDPOINTS:
+        return None
     if request.method.upper() == ALLOWLIST_METHOD and req_path == ALLOWLIST_PATH:
         return None
 

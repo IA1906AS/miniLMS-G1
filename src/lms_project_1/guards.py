@@ -41,8 +41,16 @@ def require_role(*roles: str) -> Callable[[F], F]:
             if not actor or not isinstance(actor, dict):
                 raise Forbidden("Unauthenticated actor context")
 
-            user_role = actor.get("role")
-            if user_role not in roles:
+            user_role = str(actor.get("role", "")).strip().lower()
+            if user_role == "instructor":
+                user_role = "teacher"
+
+            def _norm(r: str) -> str:
+                rn = r.strip().lower()
+                return "teacher" if rn == "instructor" else rn
+
+            allowed_roles = {_norm(r) for r in roles}
+            if user_role not in allowed_roles:
                 raise Forbidden("Insufficient role permissions")
 
             return fn(*args, **kwargs)
