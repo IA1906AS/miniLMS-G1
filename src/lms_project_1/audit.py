@@ -120,3 +120,23 @@ def setup_audit_logging(app: Flask) -> None:
             )
 
         return response
+
+
+def read_audit_logs(limit: int = 100, log_path: str | Path | None = None) -> list[dict[str, Any]]:
+    """Read up to `limit` latest audit log entries (reverse chronological order)."""
+    target_path = Path(log_path or "audit.log")
+    if not target_path.is_file():
+        return []
+    try:
+        lines = target_path.read_text(encoding="utf-8").splitlines()
+        records: list[dict[str, Any]] = []
+        for line in reversed(lines[-limit:]):
+            trimmed = line.strip()
+            if trimmed:
+                try:
+                    records.append(json.loads(trimmed))
+                except json.JSONDecodeError:
+                    continue
+        return records
+    except Exception:
+        return []

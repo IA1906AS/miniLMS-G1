@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 from flask import Flask, Response, g, jsonify, request
@@ -181,6 +182,128 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
 
         title = str(body.get("title", "Untitled Assignment"))
         return jsonify({"courseId": course_id, "title": title, "status": "created"}), 201
+
+    # 9. Home & Dashboard Endpoints
+    @app.route("/home", methods=["GET"])
+    @app.route("/api/home", methods=["GET"])
+    def get_home() -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        dashboard = services.get_home_dashboard(actor, store=store)
+        return jsonify(dashboard), 200
+
+    # 10. Account & Profile Endpoints
+    @app.route("/account/profile", methods=["GET"])
+    @app.route("/api/account/profile", methods=["GET"])
+    def get_account_profile() -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        account_data = services.get_account_data(actor, store=store)
+        return jsonify(account_data), 200
+
+    @app.route("/account/profile", methods=["PUT"])
+    @app.route("/api/account/profile", methods=["PUT"])
+    def put_account_profile() -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        validated = schemas.validate_update_profile_payload(body)
+        updated = services.update_profile(actor, validated, store=store)
+        return jsonify({"message": "Cập nhật hồ sơ thành công", "profile": updated}), 200
+
+    @app.route("/account/change-password", methods=["PUT"])
+    @app.route("/api/account/change-password", methods=["PUT"])
+    def put_account_password() -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        old_pwd, new_pwd = schemas.validate_change_password_payload(body)
+        services.change_password(actor, old_pwd, new_pwd, store=store)
+        return jsonify({"message": "Đổi mật khẩu thành công"}), 200
+
+    @app.route("/account/notifications", methods=["PUT"])
+    @app.route("/api/account/notifications", methods=["PUT"])
+    def put_account_notifications() -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        validated = schemas.validate_notifications_payload(body)
+        updated = services.update_notifications(actor, validated, store=store)
+        return (
+            jsonify({"message": "Cài đặt thông báo đã được lưu", "notifications": updated}),
+            200,
+        )
+
+    # 11. Home Page & Public Course Catalog
+    @app.route("/", methods=["GET"])
+    def home_page() -> Any:
+        from flask import send_from_directory
+
+        frontend_dir = Path(__file__).resolve().parent.parent.parent / "frontend"
+        if (frontend_dir / "index.html").is_file():
+            return send_from_directory(str(frontend_dir), "index.html")
+        templates_dir = Path(__file__).resolve().parent / "templates"
+        if (templates_dir / "index.html").is_file():
+            return send_from_directory(str(templates_dir), "index.html")
+        return jsonify({"status": "miniLMS Web Portal Online"}), 200
+
+    @app.route("/api/public/courses", methods=["GET"])
+    def get_public_courses() -> tuple[Response, int]:
+        courses_list = []
+        for cid, c in store.courses.items():
+            inst = store.get_user_by_id(c.get("instructorId", ""))
+            inst_email = inst.get("email", "") if inst else ""
+            inst_name = inst.get("fullName") or inst.get("full_name") or "" if inst else ""
+            enrolled_count = sum(
+                1 for (course_id, _), _ in store.enrollments.items() if course_id == cid
+            )
+            courses_list.append(
+                {
+                    "id": cid,
+                    "title": c.get("title", ""),
+                    "description": c.get("description", ""),
+                    "instructorId": c.get("instructorId", ""),
+                    "instructorEmail": inst_email,
+                    "instructorName": inst_name,
+                    "enrolledCount": enrolled_count,
+                    "thumbnail": c.get("thumbnail", ""),
+                    "durationHours": c.get("durationHours", 30),
+                    "isFeatured": c.get("isFeatured", False),
+                }
+            )
+        return jsonify(courses_list), 200
+
+    @app.route("/api/admin/audit-logs", methods=["GET"])
+    @require_role("ADMIN", "admin")
+    def get_admin_audit_logs() -> tuple[Response, int]:
+        log_path = app.config.get("AUDIT_LOG_PATH", "audit.log")
+        from lms_project_1.audit import read_audit_logs
+
+        records = read_audit_logs(limit=100, log_path=log_path)
+        return jsonify(records), 200
 
     return app
 

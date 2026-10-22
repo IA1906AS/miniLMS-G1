@@ -52,7 +52,9 @@ select = [
     "RUF",  # Ruff-specific rules
     "N",    # pep8-naming
 ]
-ignore = []
+ignore = [
+    "N818",  # Exception name should be named with an Error suffix (required by assignment spec)
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["lms_project_1"]
@@ -76,7 +78,7 @@ pretty = true
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 addopts = [
     "-ra",
     "--strict-config",
@@ -89,7 +91,7 @@ addopts = [
 
 [tool.coverage.run]
 branch = true
-source = ["lms_project_1"]
+source = ["lms_project_1", "app"]
 omit = ["tests/*"]
 
 [tool.coverage.report]

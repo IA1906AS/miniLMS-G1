@@ -22,6 +22,8 @@ PUBLIC_AUTH_ENDPOINTS: set[tuple[str, str]] = {
     ("POST", "/auth/register"),
     ("POST", "/auth/forgot-password"),
     ("POST", "/auth/reset-password"),
+    ("GET", "/"),
+    ("GET", "/api/public/courses"),
 }
 
 # Fallback seed users for when store is not yet initialized or during standalone testing
@@ -194,6 +196,10 @@ def gate_before_request() -> Response | None:
     if (request.method.upper(), req_path) in PUBLIC_AUTH_ENDPOINTS:
         return None
     if request.method.upper() == ALLOWLIST_METHOD and req_path == ALLOWLIST_PATH:
+        return None
+    if request.method.upper() == "GET" and (
+        request.path.startswith("/static/") or request.path == "/favicon.ico"
+    ):
         return None
 
     # 2. Extract Authorization header

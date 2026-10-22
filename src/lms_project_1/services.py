@@ -120,3 +120,44 @@ def update_grade(
     }
     result["_old_score"] = old_score
     return result
+
+
+def get_home_dashboard(actor: dict[str, Any], store: Any = None) -> dict[str, Any]:
+    """Retrieve home dashboard data for authenticated actor."""
+    s = _resolve_store(store)
+    user_id = actor.get("id", "")
+    return cast(dict[str, Any], s.get_home_dashboard(user_id))
+
+
+def get_account_data(actor: dict[str, Any], store: Any = None) -> dict[str, Any]:
+    """Retrieve account profile, history, and notifications for authenticated actor."""
+    s = _resolve_store(store)
+    user_id = actor.get("id", "")
+    return cast(dict[str, Any], s.get_account_data(user_id))
+
+
+def update_profile(
+    actor: dict[str, Any], payload: dict[str, Any], store: Any = None
+) -> dict[str, Any]:
+    """Update profile fields for authenticated actor (prevents IDOR)."""
+    s = _resolve_store(store)
+    user_id = actor.get("id", "")
+    return cast(dict[str, Any], s.update_user_profile(user_id, payload))
+
+
+def change_password(
+    actor: dict[str, Any], old_password: str, new_password: str, store: Any = None
+) -> None:
+    """Safely change user password for authenticated actor."""
+    s = _resolve_store(store)
+    user_id = actor.get("id", "")
+    s.update_user_password(user_id, old_password, new_password)
+
+
+def update_notifications(
+    actor: dict[str, Any], settings: dict[str, Any], store: Any = None
+) -> dict[str, bool]:
+    """Update notification settings for authenticated actor."""
+    s = _resolve_store(store)
+    user_id = actor.get("id", "")
+    return cast(dict[str, bool], s.update_user_notifications(user_id, settings))
