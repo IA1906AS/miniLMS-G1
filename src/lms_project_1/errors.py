@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from flask import Flask, Response, jsonify, request
 from werkzeug.exceptions import HTTPException
+
+logger = logging.getLogger(__name__)
 
 
 class AppError(Exception):
@@ -128,8 +131,15 @@ def register_error_handlers(app: Flask) -> None:
         return jsonify({"error": err_msg}), code
 
     @app.errorhandler(Exception)
-    def handle_unexpected_exception(_exc: Exception) -> tuple[Response, int]:
-        # Fail closed: never leak internal stack traces
+    def handle_unexpected_exception(exc: Exception) -> tuple[Response, int]:
+        # 1. Log chi tiết lỗi dành cho Developer / IT nội bộ qua logger terminal
+        try:
+            url_str = request.url if request else "unknown"
+        except Exception:
+            url_str = "unknown"
+        logger.error(f"Unhandled Exception at {url_str}: {exc}", exc_info=True)
+
+        # 2. Fail closed: tuyệt đối không rò rỉ raw exception hay stack trace ra client
         return jsonify({"error": "INTERNAL_ERROR"}), 500
 
     app.after_request(sanitize_response)

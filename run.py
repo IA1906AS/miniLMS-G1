@@ -12,13 +12,16 @@ src_dir = root_dir / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
-from app import create_app  # noqa: E402
+try:
+    from lms_project_1 import create_app
+except ImportError:
+    from app import create_app
 
 if __name__ == "__main__":
     os.environ.setdefault("JWT_SECRET", "super_secret_jwt_key_that_is_at_least_32_characters_long")
     port = int(os.environ.get("PORT", 5000))
     app = create_app()
     print(f"\n[INFO] miniLMS Web Portal running at: http://127.0.0.1:{port}")
-    print("[INFO] Open the URL above in your browser to access the 4-role UI.\n")
+    print("[INFO] Open the URL above in your browser to access the Web Portal.\n")
     is_debug = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true")
     app.run(host="127.0.0.1", port=port, debug=is_debug)

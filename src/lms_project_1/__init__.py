@@ -27,7 +27,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     - Config overrides environment variables.
     - Registers all 8 security layers and RBAC routes.
     """
-    app = Flask("lms_project_1")
+    root_static = Path(__file__).resolve().parent.parent.parent / "static"
+    static_path = str(root_static) if root_static.exists() else None
+    app = Flask("lms_project_1", static_folder=static_path)
 
     # 1. Config loading & JWT_SECRET verification (Layer 6 requirement)
     jwt_secret = (config.get("JWT_SECRET") if config else None) or os.environ.get("JWT_SECRET")
@@ -256,6 +258,10 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             jsonify({"message": "Cài đặt thông báo đã được lưu", "notifications": updated}),
             200,
         )
+
+    @app.route("/favicon.ico", methods=["GET"])
+    def favicon() -> tuple[str, int]:
+        return "", 204
 
     # 11. Home Page & Public Course Catalog
     @app.route("/", methods=["GET"])

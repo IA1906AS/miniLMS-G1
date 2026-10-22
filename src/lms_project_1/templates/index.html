@@ -3,16 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ShieldLMS — Nền tảng Học Trực tuyến & Bảo mật Đa tầng Defense-in-Depth</title>
+  <title>ShieldLMS — Nền tảng Học Trực Tuyến Toàn Diện & Bảo Mật</title>
   <script>
-    // Suppress third-party Play CDN development warning
+    // Lọc sạch các cảnh báo chế độ nhà phát triển của thư viện CDN bên thứ ba trong Console
     (function() {
+      const suppressKeywords = ['cdn.tailwindcss.com', 'Tailwind CSS in production', 'Alpine Expression Error'];
       const _origWarn = console.warn;
       console.warn = function(...args) {
-        if (args[0] && typeof args[0] === 'string' && (args[0].includes('cdn.tailwindcss.com') || args[0].includes('Tailwind CSS in production'))) {
-          return;
-        }
+        const text = args.map(a => (typeof a === 'string' ? a : (a?.message || ''))).join(' ');
+        if (suppressKeywords.some(kw => text.includes(kw))) return;
         _origWarn.apply(console, args);
+      };
+      const _origInfo = console.info;
+      console.info = function(...args) {
+        const text = args.map(a => (typeof a === 'string' ? a : (a?.message || ''))).join(' ');
+        if (suppressKeywords.some(kw => text.includes(kw))) return;
+        _origInfo.apply(console, args);
       };
     })();
   </script>
@@ -27,12 +33,33 @@
     .glass { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(16px); }
     .glass-dark { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px); }
   </style>
-  <!-- Local Alpine.js: prevents Tracking Prevention blocks in Edge/Chrome, offline-capable -->
-  <script defer src="/static/vendor/alpine.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js'"></script>
+  <!-- Alpine.js -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen selection:bg-indigo-500 selection:text-white" x-data="lmsApp()" x-init="init()">
 
-  <!-- 1. STICKY TOP NAVBAR -->
+  <!-- TOAST NOTIFICATION CONTAINER -->
+  <div x-show="toast.show" x-cloak
+       x-transition:enter="transition ease-out duration-300"
+       x-transition:enter-start="opacity-0 translate-y-3"
+       x-transition:enter-end="opacity-100 translate-y-0"
+       x-transition:leave="transition ease-in duration-200"
+       x-transition:leave-start="opacity-100 translate-y-0"
+       x-transition:leave-end="opacity-0 translate-y-3"
+       class="fixed bottom-6 right-6 z-50 max-w-md p-4 rounded-2xl shadow-2xl border flex items-center space-x-3"
+       :class="{
+         'bg-slate-900 border-emerald-500/40 text-emerald-300 shadow-emerald-500/10': toast.type === 'success',
+         'bg-slate-900 border-rose-500/40 text-rose-300 shadow-rose-500/10': toast.type === 'error',
+         'bg-slate-900 border-amber-500/40 text-amber-300 shadow-amber-500/10': toast.type === 'warning',
+         'bg-slate-900 border-indigo-500/40 text-indigo-300 shadow-indigo-500/10': toast.type === 'info',
+       }">
+    <div class="flex-1 text-xs font-semibold leading-relaxed" x-text="toast.message"></div>
+    <button @click="toast.show = false" class="text-slate-400 hover:text-white p-1">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+  </div>
+
+  <!-- 1. STICKY TOP NAVBAR (ADAPTIVE THEO DUY NHẤT 1 ROLE ĐANG ĐĂNG NHẬP) -->
   <header class="sticky top-0 z-50 glass-dark border-b border-slate-800/80 shadow-lg shadow-black/20">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
       
@@ -44,44 +71,74 @@
         <div>
           <div class="flex items-center space-x-1.5">
             <span class="font-extrabold text-lg tracking-tight bg-gradient-to-r from-white via-slate-100 to-indigo-200 bg-clip-text text-transparent">ShieldLMS</span>
-            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">8 LAYERS</span>
+            <span class="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">SECURE LMS</span>
           </div>
-          <p class="text-[10px] text-slate-400 hidden sm:block">Defense-in-Depth Architecture</p>
+          <p class="text-[10px] text-slate-400 hidden sm:block">Hệ thống Đào tạo & Quản lý Học tập</p>
         </div>
       </div>
 
-      <!-- Navigation Links -->
+      <!-- Navigation Links: Hiển thị ĐÚNG chức năng của vai trò hiện tại -->
       <nav class="hidden md:flex items-center space-x-1 text-xs font-semibold">
+        <!-- Tab Trang chủ: Dành cho tất cả -->
         <button @click="currentTab='home'" :class="currentTab==='home' ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30' : 'text-slate-300 hover:text-white border-transparent'" class="px-3.5 py-2 rounded-xl border transition">Trang chủ</button>
-        <button @click="currentTab='workspace'" :class="currentTab==='workspace' ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30' : 'text-slate-300 hover:text-white border-transparent'" class="px-3.5 py-2 rounded-xl border transition flex items-center space-x-1.5">
-          <span>Role Workspace</span>
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-        </button>
-        <button @click="currentTab='inspector'" :class="currentTab==='inspector' ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30' : 'text-slate-300 hover:text-white border-transparent'" class="px-3.5 py-2 rounded-xl border transition">Security Inspector</button>
+        
+        <!-- Khách tham quan: Chỉ xem danh mục khóa học -->
+        <template x-if="!token">
+          <button @click="scrollToCourses()" class="px-3.5 py-2 rounded-xl text-slate-300 hover:text-white border border-transparent transition">Danh mục Khóa học</button>
+        </template>
+
+        <!-- Vai trò SINH VIÊN: Chỉ hiển thị Bảng điểm cá nhân -->
+        <template x-if="token && isStudent()">
+          <button @click="currentTab='workspace'" :class="currentTab==='workspace' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' : 'text-slate-300 hover:text-white border-transparent'" class="px-3.5 py-2 rounded-xl border transition flex items-center space-x-1.5">
+            <span>Bảng điểm của tôi</span>
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          </button>
+        </template>
+
+        <!-- Vai trò GIẢNG VIÊN: Chỉ hiển thị Quản lý lớp & Chấm điểm -->
+        <template x-if="token && isInstructor()">
+          <button @click="currentTab='workspace'" :class="currentTab==='workspace' ? 'text-blue-400 bg-blue-500/10 border-blue-500/30' : 'text-slate-300 hover:text-white border-transparent'" class="px-3.5 py-2 rounded-xl border transition flex items-center space-x-1.5">
+            <span>Quản lý Lớp & Điểm số</span>
+            <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+          </button>
+        </template>
+
+        <!-- Vai trò QUẢN TRỊ VIÊN: Hiển thị Quản trị & Nhật ký và Chẩn đoán an toàn -->
+        <template x-if="token && isAdmin()">
+          <div class="flex items-center space-x-1">
+            <button @click="currentTab='workspace'" :class="currentTab==='workspace' ? 'text-purple-400 bg-purple-500/10 border-purple-500/30' : 'text-slate-300 hover:text-white border-transparent'" class="px-3.5 py-2 rounded-xl border transition flex items-center space-x-1.5">
+              <span>Quản trị & Nhật ký</span>
+              <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
+            </button>
+            <button @click="currentTab='inspector'" :class="currentTab==='inspector' ? 'text-indigo-400 bg-indigo-500/10 border-indigo-500/30' : 'text-slate-300 hover:text-white border-transparent'" class="px-3.5 py-2 rounded-xl border transition">
+              <span>Chẩn đoán Dịch vụ</span>
+            </button>
+          </div>
+        </template>
       </nav>
 
       <!-- User Session & Auth Controls -->
       <div class="flex items-center space-x-2.5">
-        <!-- When Guest -->
+        <!-- When Guest (Chưa đăng nhập) -->
         <template x-if="!token">
           <div class="flex items-center space-x-2">
-            <span class="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700">ROLE: GUEST</span>
+            <span class="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700">Khách tham quan</span>
             <button @click="openAuthModal('login')" class="text-xs font-bold px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-600/30">Đăng nhập</button>
             <button @click="openAuthModal('register')" class="text-xs font-medium px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition">Đăng ký</button>
           </div>
         </template>
 
-        <!-- When Authenticated -->
+        <!-- When Authenticated (Đã đăng nhập 1 vai trò duy nhất) -->
         <template x-if="token">
           <div class="flex items-center space-x-3">
             <div class="text-right hidden sm:block">
               <p class="text-xs font-bold text-white" x-text="currentUser.email"></p>
               <div class="flex items-center justify-end space-x-1.5 mt-0.5">
-                <span :class="roleBadgeClass(currentUser.role)" class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full" x-text="currentUser.role"></span>
-                <span class="text-[10px] text-slate-400 font-mono" x-text="'TTL: ' + tokenTTL + 's'"></span>
+                <span :class="roleBadgeClass(currentUser.role)" class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full" x-text="formatRoleLabel(currentUser.role)"></span>
+                <span class="text-[10px] text-slate-400 font-mono" x-text="'Phiên: ' + tokenTTL + 's'"></span>
               </div>
             </div>
-            <button @click="logout()" title="Đăng xuất" class="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700 transition">
+            <button @click="logout()" title="Đăng xuất khỏi hệ thống" class="p-2 rounded-xl bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 border border-slate-700 transition">
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
             </button>
           </div>
@@ -91,52 +148,13 @@
     </div>
   </header>
 
-  <!-- 2. QUICK DEMO ROLE SWITCHER (BUỔI CHẤM BÀI TRỰC TIẾP 1-CLICK) -->
-  <section class="bg-gradient-to-r from-slate-950 via-slate-900 to-indigo-950 border-b border-slate-800/80 px-4 py-3">
-    <div class="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-3">
-      <div class="flex items-center space-x-2 text-xs text-slate-300">
-        <span class="flex h-2 w-2 relative">
-          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-        </span>
-        <span class="font-bold text-indigo-300">1-Click Demo Switcher:</span>
-        <span class="text-slate-400 text-[11px] hidden lg:inline">Chuyển vai trò tức thì để kiểm tra kịch bản A1–A19</span>
-      </div>
-
-      <!-- Quick Role Buttons -->
-      <div class="flex flex-wrap items-center gap-1.5">
-        <button @click="quickLogin('admin@lms.test', 'ADMIN')" :class="currentUser.email==='admin@lms.test' ? 'ring-2 ring-purple-400 bg-purple-900/60' : 'bg-slate-800 hover:bg-slate-700'" class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-purple-500/30 text-purple-200 transition flex items-center space-x-1">
-          <span>👑 Admin</span>
-        </button>
-        <button @click="quickLogin('an.gv@lms.test', 'INSTRUCTOR')" :class="currentUser.email==='an.gv@lms.test' ? 'ring-2 ring-blue-400 bg-blue-900/60' : 'bg-slate-800 hover:bg-slate-700'" class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-blue-500/30 text-blue-200 transition flex items-center space-x-1">
-          <span>👨‍🏫 An (GV c1)</span>
-        </button>
-        <button @click="quickLogin('binh.gv@lms.test', 'INSTRUCTOR')" :class="currentUser.email==='binh.gv@lms.test' ? 'ring-2 ring-blue-400 bg-blue-900/60' : 'bg-slate-800 hover:bg-slate-700'" class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-blue-500/30 text-blue-200 transition flex items-center space-x-1">
-          <span>👩‍🏫 Bình (GV c2)</span>
-        </button>
-        <button @click="quickLogin('chi.sv@lms.test', 'STUDENT')" :class="currentUser.email==='chi.sv@lms.test' ? 'ring-2 ring-emerald-400 bg-emerald-900/60' : 'bg-slate-800 hover:bg-slate-700'" class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-200 transition flex items-center space-x-1">
-          <span>🎓 Chi (SV c1)</span>
-        </button>
-        <button @click="quickLogin('dung.sv@lms.test', 'STUDENT')" :class="currentUser.email==='dung.sv@lms.test' ? 'ring-2 ring-emerald-400 bg-emerald-900/60' : 'bg-slate-800 hover:bg-slate-700'" class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-200 transition flex items-center space-x-1">
-          <span>🎓 Dũng (SV c1,c2)</span>
-        </button>
-        <button @click="quickLogin('em.sv@lms.test', 'STUDENT')" :class="currentUser.email==='em.sv@lms.test' ? 'ring-2 ring-emerald-400 bg-emerald-900/60' : 'bg-slate-800 hover:bg-slate-700'" class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-emerald-500/30 text-emerald-200 transition flex items-center space-x-1">
-          <span>🎓 Em (SV c2)</span>
-        </button>
-        <button @click="switchGuest()" :class="!token ? 'ring-2 ring-slate-400 bg-slate-800' : 'bg-slate-900 hover:bg-slate-800'" class="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg border border-slate-700 text-slate-300 transition flex items-center space-x-1">
-          <span>🌐 Guest Mode</span>
-        </button>
-      </div>
-    </div>
-  </section>
-
-  <!-- 3. MAIN CONTENT CONTAINER -->
+  <!-- 2. MAIN CONTENT CONTAINER -->
   <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
 
     <!-- VIEW: HOME (HERO & BENTO KPI) -->
     <div x-show="currentTab==='home'" class="space-y-8">
       
-      <!-- Hero Banner -->
+      <!-- Hero Banner thích ứng theo vai trò đang đăng nhập -->
       <div class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-950 via-slate-900 to-slate-950 border border-indigo-500/20 p-8 sm:p-12 shadow-2xl">
         <div class="absolute -right-20 -top-20 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none"></div>
         <div class="absolute right-40 -bottom-20 w-80 h-80 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none"></div>
@@ -144,23 +162,84 @@
         <div class="relative z-10 max-w-3xl space-y-4">
           <div class="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-semibold">
             <span class="w-1.5 h-1.5 rounded-full bg-indigo-400"></span>
-            <span>Kiến Trúc An Toàn Defense-in-Depth • Flask 3.x • uv Engine</span>
+            <span x-text="token ? ('Phiên làm việc: ' + formatRoleLabel(currentUser.role) + ' (' + currentUser.email + ')') : 'Nền Tảng Đào Tạo Số • Chuẩn Mực An Toàn Thông Tin'"></span>
           </div>
-          <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
-            Nền tảng Học Trực Tuyến <br>
-            <span class="bg-gradient-to-r from-indigo-400 via-sky-300 to-emerald-400 bg-clip-text text-transparent">Bảo Vệ Đa Tầng 8 Lớp Độc Lập</span>
-          </h1>
-          <p class="text-slate-400 text-sm sm:text-base leading-relaxed">
-            Hệ thống phân quyền chuẩn 4 Roles (Admin, Teacher, Student, Guest) được thiết kế chống lại IDOR, Token Tampering, Timing Side-Channel, Type Coercion và Brute-force attacks.
-          </p>
-          <div class="pt-2 flex flex-wrap gap-3">
-            <button @click="currentTab='workspace'" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs tracking-wide shadow-lg shadow-indigo-600/25 transition flex items-center space-x-2">
-              <span>Trải nghiệm Workspace Vai Trò &rarr;</span>
-            </button>
-            <button @click="currentTab='inspector'" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition flex items-center space-x-2">
-              <span>Xem 8 Lớp Bảo Vệ & Live Logs</span>
-            </button>
-          </div>
+
+          <!-- Tiêu đề theo từng Role -->
+          <template x-if="!token">
+            <div>
+              <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight text-white leading-tight">
+                Nền tảng Học Trực Tuyến <br>
+                <span class="bg-gradient-to-r from-indigo-400 via-sky-300 to-emerald-400 bg-clip-text text-transparent">Hiện Đại, Trực Quan & Bảo Mật</span>
+              </h1>
+              <p class="text-slate-400 text-sm sm:text-base leading-relaxed mt-3">
+                Chào mừng bạn đến với ShieldLMS. Đăng nhập để truy cập không gian học tập, xem kết quả rèn luyện và tài liệu học tập của bạn.
+              </p>
+              <div class="pt-4 flex flex-wrap gap-3">
+                <button @click="openAuthModal('login')" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs tracking-wide shadow-lg shadow-indigo-600/25 transition">
+                  Đăng Nhập Ngay &rarr;
+                </button>
+                <button @click="openAuthModal('register')" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition">
+                  Đăng Ký Tài Khoản Mới
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="token && isStudent()">
+            <div>
+              <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white leading-tight">
+                Xin chào, <span class="text-emerald-400" x-text="currentUser.email"></span>! 🎓
+              </h1>
+              <p class="text-slate-400 text-sm sm:text-base leading-relaxed mt-2">
+                Hôm nay là một ngày tuyệt vời để bứt phá kỹ năng mới. Hãy kiểm tra kết quả học tập và các bài giảng đang tham gia nhé.
+              </p>
+              <div class="pt-4 flex flex-wrap gap-3">
+                <button @click="currentTab='workspace'" class="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs tracking-wide shadow-lg shadow-emerald-600/25 transition">
+                  Xem Bảng Điểm Của Tôi &rarr;
+                </button>
+                <button @click="scrollToCourses()" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition">
+                  Khám Phá Thêm Môn Học
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="token && isInstructor()">
+            <div>
+              <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white leading-tight">
+                Chào mừng Quý Thầy/Cô, <span class="text-blue-400" x-text="currentUser.email"></span>! 👨‍🏫
+              </h1>
+              <p class="text-slate-400 text-sm sm:text-base leading-relaxed mt-2">
+                Hệ thống sẵn sàng hỗ trợ Quý Thầy/Cô quản lý danh sách lớp học, cập nhật điểm số và theo dõi tiến độ của sinh viên.
+              </p>
+              <div class="pt-4 flex flex-wrap gap-3">
+                <button @click="currentTab='workspace'" class="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs tracking-wide shadow-lg shadow-blue-600/25 transition">
+                  Vào Sổ Điểm Lớp Học &rarr;
+                </button>
+              </div>
+            </div>
+          </template>
+
+          <template x-if="token && isAdmin()">
+            <div>
+              <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-white leading-tight">
+                Cổng Quản Trị Hệ Thống 👑
+              </h1>
+              <p class="text-slate-400 text-sm sm:text-base leading-relaxed mt-2">
+                Toàn bộ dữ liệu và nhật ký hoạt động của nền tảng được lưu vết minh bạch phục vụ công tác kiểm toán và an toàn thông tin.
+              </p>
+              <div class="pt-4 flex flex-wrap gap-3">
+                <button @click="currentTab='workspace'" class="px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs tracking-wide shadow-lg shadow-purple-600/25 transition">
+                  Xem Nhật Ký Hoạt Động (Audit) &rarr;
+                </button>
+                <button @click="currentTab='inspector'" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition">
+                  Kiểm Tra Dịch Vụ API
+                </button>
+              </div>
+            </div>
+          </template>
+
         </div>
       </div>
 
@@ -173,46 +252,46 @@
             <span class="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">📚</span>
           </div>
           <p class="text-3xl font-extrabold text-white mt-3" x-text="publicCourses.length || 3"></p>
-          <p class="text-[11px] text-slate-400 mt-1">Lập trình Web, Cơ sở dữ liệu, IAW301</p>
+          <p class="text-[11px] text-slate-400 mt-1">Lập trình Web, Cơ sở dữ liệu, Kiến trúc ứng dụng</p>
         </div>
 
         <!-- Card 2 -->
         <div class="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-sm relative overflow-hidden group hover:border-slate-700 transition">
           <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
-            <span>Ma trận Phân quyền</span>
+            <span>Vai trò Đăng nhập</span>
             <span class="p-2 rounded-xl bg-purple-500/10 text-purple-400">🛡️</span>
           </div>
-          <p class="text-3xl font-extrabold text-white mt-3">4 Roles</p>
-          <p class="text-[11px] text-slate-400 mt-1">Admin • Teacher • Student • Guest</p>
+          <p class="text-xl font-extrabold text-white mt-3 truncate" x-text="formatRoleLabel(currentUser.role)"></p>
+          <p class="text-[11px] text-slate-400 mt-1" x-text="currentUser.email || 'Chế độ công khai'"></p>
         </div>
 
         <!-- Card 3 -->
         <div class="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-sm relative overflow-hidden group hover:border-slate-700 transition">
           <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
-            <span>Kiến trúc Bảo mật</span>
+            <span>Tiêu chuẩn Bảo mật</span>
             <span class="p-2 rounded-xl bg-emerald-500/10 text-emerald-400">⚡</span>
           </div>
-          <p class="text-3xl font-extrabold text-emerald-400 mt-3">8 Layers</p>
-          <p class="text-[11px] text-slate-400 mt-1">HS256 + Bcrypt + Guards + Audit Log</p>
+          <p class="text-xl font-extrabold text-emerald-400 mt-3">Đa Tầng Khép Kín</p>
+          <p class="text-[11px] text-slate-400 mt-1">Xác thực mã hóa, phân quyền chặt chẽ</p>
         </div>
 
         <!-- Card 4 -->
         <div class="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-sm relative overflow-hidden group hover:border-slate-700 transition">
           <div class="flex items-center justify-between text-slate-400 text-xs font-medium">
-            <span>Brute-force Shield</span>
+            <span>Bảo vệ Tài khoản</span>
             <span class="p-2 rounded-xl bg-amber-500/10 text-amber-400">🔒</span>
           </div>
-          <p class="text-3xl font-extrabold text-amber-400 mt-3">5 Lần / 15m</p>
-          <p class="text-[11px] text-slate-400 mt-1">Tự động khóa tài khoản (429)</p>
+          <p class="text-xl font-extrabold text-amber-400 mt-3">Tự Động Bảo Vệ</p>
+          <p class="text-[11px] text-slate-400 mt-1">Tự động tạm khóa sau 5 lần sai mật khẩu</p>
         </div>
       </div>
 
       <!-- Public Course Catalog Showcase -->
-      <div class="space-y-4">
+      <div id="course-section" class="space-y-4">
         <div class="flex items-center justify-between">
           <div>
             <h2 class="text-xl font-bold text-white">Danh Mục Khóa Học Công Khai</h2>
-            <p class="text-xs text-slate-400 mt-0.5">Khách tham quan và sinh viên có thể xem chi tiết môn học</p>
+            <p class="text-xs text-slate-400 mt-0.5">Thông tin chi tiết các môn học và giảng viên phụ trách</p>
           </div>
           <button @click="loadPublicCourses()" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Làm mới danh sách &orarr;</button>
         </div>
@@ -224,7 +303,7 @@
                 <div class="relative h-44 bg-slate-800">
                   <img :src="course.thumbnail || 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600'" class="w-full h-full object-cover">
                   <span class="absolute top-3 left-3 text-[10px] font-bold px-2.5 py-1 rounded-full bg-slate-900/80 text-white backdrop-blur-md" x-text="'Mã: ' + course.id"></span>
-                  <span class="absolute top-3 right-3 text-[10px] font-bold px-2.5 py-1 rounded-full bg-indigo-600/90 text-white" x-text="course.enrolledCount + ' SV ghi danh'"></span>
+                  <span class="absolute top-3 right-3 text-[10px] font-bold px-2.5 py-1 rounded-full bg-indigo-600/90 text-white" x-text="course.enrolledCount + ' Sinh viên ghi danh'"></span>
                 </div>
                 <div class="p-5 space-y-2">
                   <h3 class="font-bold text-base text-white" x-text="course.title"></h3>
@@ -242,62 +321,57 @@
 
     </div>
 
-    <!-- VIEW: ROLE WORKSPACE (INTERACTIVE 4 ROLES) -->
+    <!-- VIEW: ROLE WORKSPACE (CHỈ HIỂN THỊ DUY NHẤT 1 VAI TRÒ HIỆN HÀNH) -->
     <div x-show="currentTab==='workspace'" class="space-y-6">
       
-      <!-- Role Header -->
-      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
-        <div>
-          <div class="flex items-center space-x-2">
-            <h2 class="text-2xl font-extrabold text-white">Không Gian Làm Việc Theo Vai Trò</h2>
-            <span :class="roleBadgeClass(currentUser.role)" class="text-xs font-bold uppercase px-2.5 py-0.5 rounded-full" x-text="currentUser.role"></span>
+      <!-- KHÁCH THAM QUAN (CHƯA ĐĂNG NHẬP) -->
+      <template x-if="!token">
+        <div class="p-8 rounded-3xl bg-slate-900 border border-slate-800 text-center space-y-4 max-w-xl mx-auto">
+          <div class="w-16 h-16 rounded-2xl bg-indigo-500/10 text-indigo-400 mx-auto flex items-center justify-center">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
           </div>
-          <p class="text-xs text-slate-400 mt-1">Giao diện điều chỉnh linh hoạt theo quyền hạn thực tế của phiên đăng nhập hiện hành</p>
-        </div>
-        <div class="text-xs font-mono text-slate-400 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
-          User ID: <span class="text-indigo-400 font-bold" x-text="currentUser.id || 'anonymous'"></span>
-        </div>
-      </div>
-
-      <!-- WORKSPACE 1: GUEST WORKSPACE -->
-      <template x-if="!token || currentUser.role==='GUEST' || currentUser.role==='guest'">
-        <div class="space-y-6">
-          <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-3">
-            <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-              <span>🌐 Quyền Hạn Khách Thăm (Guest Role)</span>
-            </h3>
-            <p class="text-xs text-slate-400 leading-relaxed">
-              Bạn đang ở chế độ xem công khai. Khách thăm được xem danh mục khóa học nhưng <strong>bị chặn hoàn toàn</strong> khi cố truy xuất bảng điểm nội bộ (Lớp 2 Gatekeeper trả về <code class="text-rose-400">401 UNAUTHENTICATED</code>).
-            </p>
-            <div class="pt-2 flex flex-wrap gap-2">
-              <button @click="testGuestUnauthorized()" class="px-4 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/40 text-xs font-bold transition">
-                💥 Thử gọi GET /courses/c1/grades (Test 401 Gatekeeper)
-              </button>
-              <button @click="openAuthModal('register')" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition">
-                Đăng ký tài khoản Học viên mới
-              </button>
-            </div>
+          <h3 class="text-xl font-bold text-white">Yêu Cầu Đăng Nhập</h3>
+          <p class="text-xs text-slate-400 leading-relaxed">
+            Khu vực làm việc và dữ liệu điểm số chỉ dành cho thành viên chính thức của trường. Vui lòng đăng nhập với vai trò Sinh viên, Giảng viên hoặc Quản trị viên để tiếp tục.
+          </p>
+          <div class="pt-2">
+            <button @click="openAuthModal('login')" class="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition">
+              Đăng Nhập Ngay
+            </button>
           </div>
         </div>
       </template>
 
-      <!-- WORKSPACE 2: STUDENT WORKSPACE -->
-      <template x-if="currentUser.role==='STUDENT' || currentUser.role==='student'">
+      <!-- 1. VAI TRÒ SINH VIÊN (CHỈ HIỂN THỊ DUY NHẤT KHI LOGGED IN LÀ STUDENT) -->
+      <template x-if="token && isStudent()">
         <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
+            <div>
+              <div class="flex items-center space-x-2">
+                <h2 class="text-2xl font-extrabold text-white">Không Gian Học Tập Sinh Viên</h2>
+                <span class="text-xs font-bold uppercase px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Sinh viên</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-1">Tra cứu kết quả học tập và theo dõi điểm số các môn đã ghi danh</p>
+            </div>
+            <div class="text-xs font-mono text-slate-400 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
+              Mã sinh viên: <span class="text-emerald-400 font-bold" x-text="currentUser.id"></span>
+            </div>
+          </div>
+
           <div class="p-6 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-4">
             <div class="flex items-center justify-between">
               <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <span>🎓 Bảng Điểm Cá Nhân (Student View)</span>
+                <span>🎓 Bảng Điểm Cá Nhân Của Bạn</span>
               </h3>
-              <span class="text-xs text-emerald-400 font-semibold">Kịch bản A7: Chỉ thấy điểm của chính mình</span>
+              <span class="text-xs text-emerald-400 font-semibold">Chỉ hiển thị kết quả học tập của chính bạn</span>
             </div>
 
             <!-- Course Selector for Student -->
             <div class="flex items-center space-x-3">
               <label class="text-xs text-slate-400 font-semibold">Chọn khóa học:</label>
               <select x-model="selectedCourseId" @change="loadStudentGrades()" class="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:ring-2 focus:ring-indigo-500">
-                <option value="c1">c1 - Lập trình Web (GV An)</option>
-                <option value="c2">c2 - Cơ sở dữ liệu (GV Bình)</option>
+                <option value="c1">c1 - Lập trình Web (Thầy An phụ trách)</option>
+                <option value="c2">c2 - Cơ sở dữ liệu (Cô Bình phụ trách)</option>
               </select>
               <button @click="loadStudentGrades()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition">Tra cứu điểm</button>
             </div>
@@ -306,7 +380,7 @@
             <div class="overflow-x-auto rounded-xl border border-slate-800">
               <table class="w-full text-left text-xs">
                 <thead class="bg-slate-800 text-slate-400 uppercase font-bold text-[10px]">
-                  <tr><th class="p-3">Mã Môn</th><th class="p-3">Mã Sinh Viên</th><th class="p-3">Điểm Số</th><th class="p-3">Đánh Giá</th><th class="p-3 text-right">Thử Nghiệm Lỗ Hổng</th></tr>
+                  <tr><th class="p-3">Mã Môn</th><th class="p-3">Mã Sinh Viên</th><th class="p-3">Điểm Số</th><th class="p-3">Đánh Giá</th><th class="p-3 text-right">Trạng Thái Quyền Hạn</th></tr>
                 </thead>
                 <tbody class="divide-y divide-slate-800">
                   <template x-if="studentGrades.length > 0">
@@ -315,66 +389,72 @@
                         <td class="p-3 font-mono font-bold text-indigo-300" x-text="selectedCourseId"></td>
                         <td class="p-3 font-mono" x-text="g.studentId"></td>
                         <td class="p-3 font-extrabold text-sm text-emerald-400" x-text="g.score"></td>
-                        <td class="p-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400" x-text="g.score >= 5 ? 'Đạt' : 'Chưa đạt'"></span></td>
+                        <td class="p-3"><span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400" x-text="g.score >= 5 ? 'Đạt yêu cầu' : 'Chưa đạt'"></span></td>
                         <td class="p-3 text-right">
-                          <button @click="testStudentForbiddenEdit(selectedCourseId, g.studentId)" class="px-2.5 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[10px] font-bold transition">
-                            Thử sửa điểm lên 10 (Test 403 - A9)
-                          </button>
+                          <span class="text-[10px] text-slate-400 italic">Chỉ xem (Read-only)</span>
                         </td>
                       </tr>
                     </template>
                   </template>
                   <template x-if="studentGrades.length === 0">
-                    <tr><td colspan="5" class="p-4 text-center text-slate-500 italic">Chưa có dữ liệu hoặc không ghi danh vào môn này.</td></tr>
+                    <tr><td colspan="5" class="p-4 text-center text-slate-500 italic">Chưa có dữ liệu điểm hoặc bạn chưa ghi danh vào môn học này.</td></tr>
                   </template>
                 </tbody>
               </table>
-            </div>
-
-            <div class="p-3 rounded-xl bg-slate-800/60 border border-slate-700/60 text-xs text-slate-400 flex items-center justify-between">
-              <span>💡 Thử kiểm tra Kịch bản A8: Học viên Chi gọi <code class="text-indigo-300">GET /courses/c2/grades</code></span>
-              <button @click="testChiGetC2Grades()" class="px-3 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs transition">Chạy Test A8 (Mong đợi 403)</button>
             </div>
           </div>
         </div>
       </template>
 
-      <!-- WORKSPACE 3: TEACHER WORKSPACE -->
-      <template x-if="currentUser.role==='INSTRUCTOR' || currentUser.role==='TEACHER' || currentUser.role==='teacher'">
+      <!-- 2. VAI TRÒ GIẢNG VIÊN (CHỈ HIỂN THỊ DUY NHẤT KHI LOGGED IN LÀ INSTRUCTOR) -->
+      <template x-if="token && isInstructor()">
         <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
+            <div>
+              <div class="flex items-center space-x-2">
+                <h2 class="text-2xl font-extrabold text-white">Cổng Thông Tin Giảng Viên</h2>
+                <span class="text-xs font-bold uppercase px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30">Giảng viên</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-1">Quản lý danh sách lớp học và nhập điểm các môn được phân công</p>
+            </div>
+            <div class="text-xs font-mono text-slate-400 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
+              Giảng viên: <span class="text-blue-400 font-bold" x-text="currentUser.email"></span>
+            </div>
+          </div>
+
           <div class="p-6 rounded-2xl bg-slate-900 border border-blue-500/30 space-y-4">
             <div class="flex items-center justify-between">
               <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <span>👨‍🏫 Bảng Điểm & Quản Lý Lớp Học (Teacher View)</span>
+                <span>👨‍🏫 Sổ Điểm Lớp Học</span>
               </h3>
-              <span class="text-xs text-blue-400 font-semibold">Chỉ sửa được điểm môn mình phụ trách</span>
+              <span class="text-xs text-blue-400 font-semibold">Chỉ có quyền cập nhật điểm môn học do mình phụ trách</span>
             </div>
 
             <!-- Gradebook Actions -->
             <div class="flex flex-wrap items-center gap-3">
               <label class="text-xs text-slate-400 font-semibold">Chọn môn giảng dạy:</label>
               <select x-model="selectedCourseId" @change="loadTeacherGrades()" class="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:ring-2 focus:ring-blue-500">
-                <option value="c1">c1 - Lập trình Web (GV An phụ trách)</option>
-                <option value="c2">c2 - Cơ sở dữ liệu (GV Bình phụ trách)</option>
+                <option value="c1">c1 - Lập trình Web (Thầy An phụ trách)</option>
+                <option value="c2">c2 - Cơ sở dữ liệu (Cô Bình phụ trách)</option>
               </select>
               <button @click="loadTeacherGrades()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition">Tải danh sách lớp</button>
             </div>
 
             <!-- Grade Update Form -->
             <div class="p-4 rounded-xl bg-slate-800/80 border border-slate-700 space-y-3">
-              <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wider">Cập Nhật Điểm Sinh Viên (PUT /courses/{id}/grades/{studentId})</h4>
+              <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wider">Cập Nhật Điểm Sinh Viên</h4>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label class="block text-[11px] text-slate-400 mb-1">Mã Sinh Viên</label>
                   <input type="text" x-model="updateForm.studentId" placeholder="u4" class="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white">
                 </div>
                 <div>
-                  <label class="block text-[11px] text-slate-400 mb-1">Điểm Mới (0.0 - 10.0)</label>
+                  <label class="block text-[11px] text-slate-400 mb-1">Điểm Mới (Thang điểm 0.0 - 10.0)</label>
                   <input type="number" step="0.5" min="0" max="10" x-model="updateForm.score" placeholder="9.0" class="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-white">
                 </div>
                 <div class="flex items-end">
                   <button @click="submitGradeUpdate()" class="w-full py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition shadow-md shadow-emerald-600/20">
-                    Cập nhật điểm & Ghi Audit Log
+                    Lưu Điểm Mới Vào Hệ Thống
                   </button>
                 </div>
               </div>
@@ -384,7 +464,7 @@
             <div class="overflow-x-auto rounded-xl border border-slate-800">
               <table class="w-full text-left text-xs">
                 <thead class="bg-slate-800 text-slate-400 uppercase font-bold text-[10px]">
-                  <tr><th class="p-3">Mã Môn</th><th class="p-3">Mã SV</th><th class="p-3">Điểm Hiện Tại</th><th class="p-3 text-right">Thao Tác Nhanh</th></tr>
+                  <tr><th class="p-3">Mã Môn</th><th class="p-3">Mã Sinh Viên</th><th class="p-3">Điểm Hiện Tại</th><th class="p-3 text-right">Thao Tác</th></tr>
                 </thead>
                 <tbody class="divide-y divide-slate-800">
                   <template x-for="row in teacherGrades" :key="row.studentId">
@@ -405,54 +485,56 @@
         </div>
       </template>
 
-      <!-- WORKSPACE 4: ADMIN WORKSPACE -->
-      <template x-if="currentUser.role==='ADMIN' || currentUser.role==='admin'">
+      <!-- 3. VAI TRÒ QUẢN TRỊ VIÊN (CHỈ HIỂN THỊ DUY NHẤT KHI LOGGED IN LÀ ADMIN) -->
+      <template x-if="token && isAdmin()">
         <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-4 border-b border-slate-800 gap-3">
+            <div>
+              <div class="flex items-center space-x-2">
+                <h2 class="text-2xl font-extrabold text-white">Cổng Quản Trị Hệ Thống</h2>
+                <span class="text-xs font-bold uppercase px-2.5 py-0.5 rounded-full bg-purple-500/20 text-purple-400 border border-purple-500/30">Quản trị viên</span>
+              </div>
+              <p class="text-xs text-slate-400 mt-1">Giám sát nhật ký hoạt động kiểm toán và an toàn thông tin toàn trường</p>
+            </div>
+            <div class="text-xs font-mono text-slate-400 bg-slate-800/80 px-3 py-1.5 rounded-xl border border-slate-700">
+              Quản trị viên: <span class="text-purple-400 font-bold" x-text="currentUser.email"></span>
+            </div>
+          </div>
+
           <div class="p-6 rounded-2xl bg-slate-900 border border-purple-500/30 space-y-4">
             <div class="flex items-center justify-between">
               <h3 class="text-lg font-bold text-white flex items-center space-x-2">
-                <span>👑 Quản Trị Hệ Thống & Giám Sát An Ninh (Admin View)</span>
+                <span>👑 Nhật Ký Kiểm Toán & Biến Động Điểm Số Thời Gian Thực</span>
               </h3>
-              <span class="text-xs text-purple-400 font-semibold">Kịch bản A11: Không được sửa điểm (403)</span>
+              <button @click="loadAuditLogs()" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Làm mới nhật ký &orarr;</button>
             </div>
 
-            <!-- Notice -->
+            <!-- Academic Integrity Notice -->
             <div class="p-3 rounded-xl bg-purple-500/10 border border-purple-500/30 text-xs text-purple-300 flex items-center justify-between">
-              <span>⚠️ Theo ma trận phân quyền: Admin có quyền xem toàn bộ dữ liệu nhưng <strong>không có quyền can thiệp điểm</strong>.</span>
-              <button @click="testAdminForbiddenPut()" class="px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 font-bold text-xs transition">Chạy Test A11 (Mong đợi 403)</button>
+              <span>⚠️ Quy định học viện: Quản trị viên có toàn quyền kiểm tra hệ thống nhưng không được phép trực tiếp sửa đổi kết quả học tập của sinh viên.</span>
             </div>
 
             <!-- Live Audit Log Stream -->
-            <div class="space-y-2">
-              <div class="flex items-center justify-between">
-                <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center space-x-2">
-                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>Nhật Ký Bảo Mật Thời Gian Thực (Live Audit Logs - Lớp 8)</span>
-                </h4>
-                <button @click="loadAuditLogs()" class="text-xs text-indigo-400 hover:text-indigo-300 font-medium">Làm mới logs &orarr;</button>
-              </div>
-
-              <div class="overflow-x-auto rounded-xl border border-slate-800 max-h-96 overflow-y-auto">
-                <table class="w-full text-left text-xs">
-                  <thead class="sticky top-0 bg-slate-800 text-slate-400 uppercase font-bold text-[10px]">
-                    <tr><th class="p-3">Thời gian</th><th class="p-3">Actor ID</th><th class="p-3">Hành động</th><th class="p-3">Tài nguyên</th><th class="p-3">Kết quả</th><th class="p-3">Điểm cũ &rarr; mới</th></tr>
-                  </thead>
-                  <tbody class="divide-y divide-slate-800 font-mono text-[11px]">
-                    <template x-for="(log, idx) in auditLogs" :key="idx">
-                      <tr :class="log.result==='FORBIDDEN' ? 'bg-rose-950/20 text-rose-300' : 'bg-slate-900/60 text-slate-300'">
-                        <td class="p-3 whitespace-nowrap text-slate-400" x-text="log.ts"></td>
-                        <td class="p-3 font-bold" x-text="log.actorId"></td>
-                        <td class="p-3 font-semibold" x-text="log.action"></td>
-                        <td class="p-3 truncate max-w-xs" x-text="log.resource"></td>
-                        <td class="p-3">
-                          <span :class="log.result==='SUCCESS' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border-rose-500/30'" class="px-2 py-0.5 rounded-full text-[10px] font-bold border" x-text="log.result"></span>
-                        </td>
-                        <td class="p-3" x-text="log.oldScore !== undefined ? (log.oldScore + ' &rarr; ' + log.newScore) : '-'"></td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-              </div>
+            <div class="overflow-x-auto rounded-xl border border-slate-800 max-h-96 overflow-y-auto">
+              <table class="w-full text-left text-xs">
+                <thead class="sticky top-0 bg-slate-800 text-slate-400 uppercase font-bold text-[10px]">
+                  <tr><th class="p-3">Thời gian</th><th class="p-3">Người thực hiện</th><th class="p-3">Hành động</th><th class="p-3">Tài nguyên</th><th class="p-3">Kết quả</th><th class="p-3">Biến động điểm</th></tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800 font-mono text-[11px]">
+                  <template x-for="(log, idx) in auditLogs" :key="idx">
+                    <tr :class="log.result==='FORBIDDEN' ? 'bg-rose-950/20 text-rose-300' : 'bg-slate-900/60 text-slate-300'">
+                      <td class="p-3 whitespace-nowrap text-slate-400" x-text="log.ts"></td>
+                      <td class="p-3 font-bold" x-text="log.actorId"></td>
+                      <td class="p-3 font-semibold" x-text="log.action"></td>
+                      <td class="p-3 truncate max-w-xs" x-text="log.resource"></td>
+                      <td class="p-3">
+                        <span :class="log.result==='SUCCESS' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border-rose-500/30'" class="px-2 py-0.5 rounded-full text-[10px] font-bold border" x-text="log.result === 'SUCCESS' ? 'Thành công' : 'Bị từ chối'"></span>
+                      </td>
+                      <td class="p-3" x-text="log.oldScore !== undefined ? (log.oldScore + ' &rarr; ' + log.newScore) : '-'"></td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
             </div>
 
           </div>
@@ -461,101 +543,93 @@
 
     </div>
 
-    <!-- VIEW: LIVE SECURITY & DEFENSE-IN-DEPTH INSPECTOR -->
-    <div x-show="currentTab==='inspector'" class="space-y-6">
+    <!-- VIEW: SECURITY CENTER & SERVICE DIAGNOSTICS (CHỈ DÀNH RIÊNG CHO QUẢN TRỊ VIÊN) -->
+    <div x-show="currentTab==='inspector' && token && isAdmin()" class="space-y-6">
       <div class="flex items-center justify-between pb-4 border-b border-slate-800">
         <div>
-          <h2 class="text-2xl font-extrabold text-white">Live Defense-in-Depth Inspector</h2>
-          <p class="text-xs text-slate-400 mt-1">Giám sát trực quan trạng thái vận hành của 8 lớp phòng thủ độc lập</p>
+          <h2 class="text-2xl font-extrabold text-white">Trung Tâm An Ninh & Chẩn Đoán Dịch Vụ</h2>
+          <p class="text-xs text-slate-400 mt-1">Dành riêng cho Quản trị viên kiểm tra tính toàn vẹn và phản hồi của API</p>
         </div>
       </div>
 
-      <!-- 8 Layers Visual Grid -->
+      <!-- 8 Defense Layers Grid -->
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <!-- Layer 1 -->
         <div class="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1.5">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-bold text-emerald-400">Layer 1: AuthN & Crypto</span>
-            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">ACTIVE</span>
+            <span class="font-bold text-emerald-400">1. Xác Thực & Mật Mã</span>
+            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">HOẠT ĐỘNG</span>
           </div>
-          <p class="text-[11px] text-slate-300 font-semibold">Bcrypt (cost=10) & JWT HS256</p>
-          <p class="text-[10px] text-slate-500">Chống timing/enumeration, payload strictly sub, iat, exp.</p>
+          <p class="text-[11px] text-slate-300 font-semibold">Mã hóa mật khẩu nâng cao</p>
+          <p class="text-[10px] text-slate-500 leading-normal">Bảo vệ mật khẩu người dùng và ngăn chặn tấn công giả mạo phiên làm việc.</p>
         </div>
 
-        <!-- Layer 2 -->
         <div class="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1.5">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-bold text-emerald-400">Layer 2: Gatekeeper</span>
-            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">ACTIVE</span>
+            <span class="font-bold text-emerald-400">2. Cổng Kiểm Soát</span>
+            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">HOẠT ĐỘNG</span>
           </div>
-          <p class="text-[11px] text-slate-300 font-semibold">Global Deny-by-Default</p>
-          <p class="text-[10px] text-slate-500">Mọi route chưa khai báo (VD: GET /debug) đều bị chặn 401.</p>
+          <p class="text-[11px] text-slate-300 font-semibold">Chặn mặc định đường dẫn lạ</p>
+          <p class="text-[10px] text-slate-500 leading-normal">Từ chối ngay lập tức mọi yêu cầu trái phép hoặc không rõ nguồn gốc.</p>
         </div>
 
-        <!-- Layer 3 -->
         <div class="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1.5">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-bold text-emerald-400">Layer 3: Route Guards</span>
-            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">ACTIVE</span>
+            <span class="font-bold text-emerald-400">3. Phân Quyền Vai Trò</span>
+            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">HOẠT ĐỘNG</span>
           </div>
-          <p class="text-[11px] text-slate-300 font-semibold">@require_role(*roles)</p>
-          <p class="text-[10px] text-slate-500">Kiểm tra vai trò cấp route, ném 403 FORBIDDEN khi sai role.</p>
+          <p class="text-[11px] text-slate-300 font-semibold">Bảo vệ theo nhóm chức năng</p>
+          <p class="text-[10px] text-slate-500 leading-normal">Đảm bảo người dùng chỉ được tiếp cận đúng các chức năng được cấp phép.</p>
         </div>
 
-        <!-- Layer 4 -->
         <div class="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1.5">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-bold text-emerald-400">Layer 4: Object-Level Auth</span>
-            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">ACTIVE</span>
+            <span class="font-bold text-emerald-400">4. Kiểm Soát Dữ Liệu</span>
+            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">HOẠT ĐỘNG</span>
           </div>
-          <p class="text-[11px] text-slate-300 font-semibold">services.py (No Flask)</p>
-          <p class="text-[10px] text-slate-500">Tự kiểm tra quyền đối tượng độc lập cả khi route gỡ guard.</p>
+          <p class="text-[11px] text-slate-300 font-semibold">Xác thực quyền sở hữu lớp</p>
+          <p class="text-[10px] text-slate-500 leading-normal">Giảng viên chỉ quản lý học viên thuộc đúng lớp học do mình phụ trách.</p>
         </div>
 
-        <!-- Layer 5 -->
         <div class="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1.5">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-bold text-emerald-400">Layer 5: Strict Schema</span>
-            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">ACTIVE</span>
+            <span class="font-bold text-emerald-400">5. Chuẩn Hóa Dữ Liệu</span>
+            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">HOẠT ĐỘNG</span>
           </div>
-          <p class="text-[11px] text-slate-300 font-semibold">schemas.py Type Safety</p>
-          <p class="text-[10px] text-slate-500">Chống boolean true/false, string "10", field thừa (400).</p>
+          <p class="text-[11px] text-slate-300 font-semibold">Ràng buộc thang điểm 0 - 10</p>
+          <p class="text-[10px] text-slate-500 leading-normal">Loại bỏ các trường dữ liệu dư thừa hoặc sai lệch kiểu giá trị ngay tại cổng vào.</p>
         </div>
 
-        <!-- Layer 6 -->
         <div class="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1.5">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-bold text-emerald-400">Layer 6: Fail-Closed</span>
-            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">ACTIVE</span>
+            <span class="font-bold text-emerald-400">6. Bảo Mật Phản Hồi</span>
+            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">HOẠT ĐỘNG</span>
           </div>
-          <p class="text-[11px] text-slate-300 font-semibold">errors.py & Sanitization</p>
-          <p class="text-[10px] text-slate-500">JWT_SECRET >= 32 chars, chuẩn hóa {"error": "..."}.</p>
+          <p class="text-[11px] text-slate-300 font-semibold">Lọc thông tin phản hồi</p>
+          <p class="text-[10px] text-slate-500 leading-normal">Ngăn chặn rò rỉ mã lỗi hệ thống và thông tin mật ra ngoài giao diện người dùng.</p>
         </div>
 
-        <!-- Layer 7 -->
         <div class="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1.5">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-bold text-emerald-400">Layer 7: Brute-Force</span>
-            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">ACTIVE</span>
+            <span class="font-bold text-emerald-400">7. Chống Dò Mật Khẩu</span>
+            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">HOẠT ĐỘNG</span>
           </div>
-          <p class="text-[11px] text-slate-300 font-semibold">5 Failures / 15m Lock</p>
-          <p class="text-[10px] text-slate-500">Khóa tài khoản 429 ACCOUNT_LOCKED khi nhập sai liên tiếp.</p>
+          <p class="text-[11px] text-slate-300 font-semibold">Tự động khóa 15 phút</p>
+          <p class="text-[10px] text-slate-500 leading-normal">Bảo vệ tài khoản an toàn trước các cuộc tấn công thử mật khẩu liên tục.</p>
         </div>
 
-        <!-- Layer 8 -->
         <div class="p-4 rounded-2xl bg-slate-900 border border-emerald-500/30 space-y-1.5">
           <div class="flex items-center justify-between text-xs">
-            <span class="font-bold text-emerald-400">Layer 8: Audit Logging</span>
-            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">ACTIVE</span>
+            <span class="font-bold text-emerald-400">8. Nhật Ký Minh Bạch</span>
+            <span class="text-emerald-400 font-mono text-[10px] bg-emerald-500/20 px-2 py-0.5 rounded-full">HOẠT ĐỘNG</span>
           </div>
-          <p class="text-[11px] text-slate-300 font-semibold">JSON Lines Audit Log</p>
-          <p class="text-[10px] text-slate-500">Ghi ts, actorId, action, oldScore, newScore. Không secret.</p>
+          <p class="text-[11px] text-slate-300 font-semibold">Lưu vết biến động điểm</p>
+          <p class="text-[10px] text-slate-500 leading-normal">Lưu trữ thời gian, người thực hiện và sự thay đổi điểm phục vụ hậu kiểm.</p>
         </div>
       </div>
 
-      <!-- Live Interactive API Console -->
+      <!-- Live Service Diagnostic Playground -->
       <div class="p-6 rounded-2xl bg-slate-900 border border-slate-800 space-y-4">
-        <h3 class="text-sm font-bold text-white uppercase tracking-wider">Thử Nghiệm API Trực Tiếp (Live API Playground)</h3>
+        <h3 class="text-sm font-bold text-white uppercase tracking-wider">Công Cụ Kiểm Thử & Chẩn Đoán Dịch Vụ API</h3>
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <!-- Request Panel -->
@@ -573,21 +647,23 @@
             <textarea rows="4" x-model="apiConsole.body" class="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs font-mono text-white" placeholder='{"score": 9.0}'></textarea>
             
             <div class="flex flex-wrap gap-2">
-              <button @click="sendConsoleRequest()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition shadow-md shadow-indigo-600/20">Gửi Request &rarr;</button>
-              <button @click="setConsolePreset('GET', '/debug', null)" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Test /debug (A1)</button>
-              <button @click="setConsolePreset('PUT', '/courses/c1/grades/u4', {score: true})" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Test Boolean (A13)</button>
-              <button @click="setConsolePreset('PUT', '/courses/c1/grades/u4', {score: '10'})" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Test String (A12)</button>
-              <button @click="setConsolePreset('PUT', '/courses/c1/grades/u4', {score: 11})" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Test Range (A14)</button>
+              <button @click="sendConsoleRequest()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition shadow-md shadow-indigo-600/20">Gửi Yêu Cầu &rarr;</button>
+              <button @click="setConsolePreset('GET', '/api/public/courses', null)" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Khóa học Công khai</button>
+              <button @click="setConsolePreset('GET', '/courses/c1/grades', null)" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Truy vấn Điểm c1</button>
+              <button @click="setConsolePreset('PUT', '/courses/c1/grades/u4', {score: 9.5})" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Điểm Hợp lệ (9.5)</button>
+              <button @click="setConsolePreset('PUT', '/courses/c1/grades/u4', {score: 11})" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Điểm Vượt thang (11)</button>
+              <button @click="setConsolePreset('PUT', '/courses/c1/grades/u4', {score: '10'})" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Điểm Dạng Chuỗi</button>
+              <button @click="setConsolePreset('PUT', '/courses/c1/grades/u4', {score: true})" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Điểm Sai Kiểu (Boolean)</button>
             </div>
           </div>
 
           <!-- Response Panel -->
           <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 font-mono text-xs overflow-x-auto">
             <div class="flex items-center justify-between text-[11px] pb-2 border-b border-slate-800">
-              <span class="text-slate-400">Response Status:</span>
-              <span :class="apiConsole.status < 300 ? 'text-emerald-400' : 'text-rose-400'" class="font-bold" x-text="apiConsole.status ? (apiConsole.status + ' HTTP') : 'Chờ gửi request...'"></span>
+              <span class="text-slate-400">Trạng thái phản hồi:</span>
+              <span :class="apiConsole.status >= 200 && apiConsole.status < 300 ? 'text-emerald-400' : 'text-amber-400'" class="font-bold" x-text="formatStatusDescription(apiConsole.status)"></span>
             </div>
-            <pre class="text-indigo-200 text-[11px] overflow-auto max-h-48" x-text="apiConsole.response || '// Phản hồi JSON sẽ hiển thị ở đây'"></pre>
+            <pre class="text-indigo-200 text-[11px] overflow-auto max-h-48" x-text="apiConsole.response || '// Kết quả phản hồi sẽ hiển thị ở đây'"></pre>
           </div>
         </div>
       </div>
@@ -596,7 +672,7 @@
 
   </main>
 
-  <!-- 4. AUTHENTICATION MODAL (LOGIN / REGISTER / RESET PASSWORD) -->
+  <!-- 3. AUTHENTICATION MODAL (LOGIN / REGISTER / RESET PASSWORD) -->
   <div x-show="showAuthModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
     <div class="max-w-md w-full bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl relative">
       
@@ -612,10 +688,24 @@
         <button @click="authTab='reset'" :class="authTab==='reset' ? 'border-b-2 border-indigo-500 text-indigo-400 font-bold' : 'text-slate-400'" class="flex-1 pb-3 text-xs uppercase tracking-wider transition">Quên MK</button>
       </div>
 
-      <div x-show="authMsg.text" :class="authMsg.type==='success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'" class="mb-4 p-3 rounded-xl border text-xs font-semibold" x-text="authMsg.text"></div>
+      <div x-show="authMsg.text" :class="authMsg.type==='success' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'" class="mb-4 p-3 rounded-xl border text-xs font-semibold leading-relaxed" x-text="authMsg.text"></div>
 
       <!-- TAB 1: LOGIN -->
       <div x-show="authTab==='login'">
+        <!-- Tiện ích chọn nhanh tài khoản mẫu -->
+        <div class="mb-4 p-3 rounded-2xl bg-slate-800/80 border border-slate-700/80 space-y-1.5">
+          <label class="block text-[11px] font-bold text-slate-300">Chọn nhanh tài khoản mẫu để đăng nhập:</label>
+          <select @change="fillDemoAccount($event.target.value)" class="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-indigo-300 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden">
+            <option value="">-- Tự nhập email hoặc chọn tài khoản mẫu --</option>
+            <option value="chi.sv@lms.test">🎓 Sinh viên: chi.sv@lms.test (SV Linh Chi - Lớp Web)</option>
+            <option value="dung.sv@lms.test">🎓 Sinh viên: dung.sv@lms.test (SV Tuấn Dũng - Lớp Web & CSDL)</option>
+            <option value="em.sv@lms.test">🎓 Sinh viên: em.sv@lms.test (SV Hoàng Em - Lớp CSDL)</option>
+            <option value="an.gv@lms.test">👨‍🏫 Giảng viên: an.gv@lms.test (Thầy An - Lập trình Web)</option>
+            <option value="binh.gv@lms.test">👩‍🏫 Giảng viên: binh.gv@lms.test (Cô Bình - Cơ sở dữ liệu)</option>
+            <option value="admin@lms.test">👑 Quản trị viên: admin@lms.test (System Admin)</option>
+          </select>
+        </div>
+
         <form @submit.prevent="submitLogin()" class="space-y-4">
           <div>
             <label class="block text-xs font-bold text-slate-300 mb-1">Email</label>
@@ -643,9 +733,9 @@
           <div>
             <label class="block text-xs font-bold text-slate-300 mb-1">Vai trò mong muốn</label>
             <select x-model="registerForm.role" class="w-full px-3.5 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white focus:ring-2 focus:ring-indigo-500">
-              <option value="STUDENT">Sinh viên (Student)</option>
-              <option value="TEACHER">Giảng viên (Teacher)</option>
-              <option value="GUEST">Khách tham quan (Guest)</option>
+              <option value="STUDENT">Sinh viên</option>
+              <option value="TEACHER">Giảng viên</option>
+              <option value="GUEST">Khách tham quan</option>
             </select>
           </div>
           <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition shadow-lg shadow-emerald-600/25">Đăng ký tài khoản</button>
@@ -692,6 +782,80 @@
         resetForm: { email: '', newPassword: '' },
         updateForm: { studentId: 'u4', score: 9.0 },
         apiConsole: { method: 'GET', endpoint: '/me', body: '', status: '', response: '' },
+        toast: { show: false, message: '', type: 'info', timeout: null },
+
+        isStudent() {
+          const r = String(this.currentUser.role || '').toUpperCase();
+          return r === 'STUDENT';
+        },
+
+        isInstructor() {
+          const r = String(this.currentUser.role || '').toUpperCase();
+          return r === 'INSTRUCTOR' || r === 'TEACHER';
+        },
+
+        isAdmin() {
+          const r = String(this.currentUser.role || '').toUpperCase();
+          return r === 'ADMIN';
+        },
+
+        notify(message, type = 'info') {
+          this.toast.message = message;
+          this.toast.type = type;
+          this.toast.show = true;
+          if (this.toast.timeout) clearTimeout(this.toast.timeout);
+          this.toast.timeout = setTimeout(() => { this.toast.show = false; }, 4500);
+        },
+
+        formatRoleLabel(role) {
+          const r = String(role || '').toUpperCase();
+          if (r === 'ADMIN') return 'Quản trị viên';
+          if (r === 'INSTRUCTOR' || r === 'TEACHER') return 'Giảng viên';
+          if (r === 'STUDENT') return 'Sinh viên';
+          return 'Khách tham quan';
+        },
+
+        formatErrorMessage(error) {
+          const map = {
+            'INVALID_CREDENTIALS': 'Email hoặc mật khẩu không chính xác. Vui lòng thử lại.',
+            'UNAUTHENTICATED': 'Phiên đăng nhập đã hết hạn hoặc bạn chưa đăng nhập.',
+            'FORBIDDEN': 'Bạn không có quyền thực hiện thao tác này.',
+            'VALIDATION_ERROR': 'Thông tin nhập vào không hợp lệ hoặc sai định dạng.',
+            'NOT_FOUND': 'Không tìm thấy dữ liệu yêu cầu.',
+            'ACCOUNT_LOCKED': 'Tài khoản đã bị tạm khóa trong 15 phút do nhập sai mật khẩu quá 5 lần.',
+            'INTERNAL_ERROR': 'Hệ thống đang gặp sự cố tạm thời. Vui lòng thử lại sau.',
+            'NON_JSON_RESPONSE': 'Phản hồi từ máy chủ không đúng định dạng JSON.',
+          };
+          return map[error] || (typeof error === 'string' ? error : 'Đã có lỗi xảy ra. Vui lòng thử lại.');
+        },
+
+        formatStatusDescription(status) {
+          const map = {
+            200: '200 OK — Yêu cầu thành công',
+            201: '201 Created — Khởi tạo thành công',
+            400: '400 Bad Request — Dữ liệu không hợp lệ',
+            401: '401 Unauthorized — Chưa xác thực danh tính',
+            403: '403 Forbidden — Từ chối quyền truy cập',
+            404: '404 Not Found — Không tìm thấy tài nguyên',
+            429: '429 Locked — Tài khoản tạm khóa 15 phút',
+            500: '500 Error — Lỗi máy chủ tạm thời',
+          };
+          return map[status] || (status ? `${status} HTTP` : 'Chờ gửi yêu cầu...');
+        },
+
+        fillDemoAccount(email) {
+          if (!email) return;
+          this.loginForm.email = email;
+          this.loginForm.password = 'Lms@2026';
+        },
+
+        scrollToCourses() {
+          this.currentTab = 'home';
+          this.$nextTick(() => {
+            const el = document.getElementById('course-section');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+          });
+        },
 
         async init() {
           await this.loadPublicCourses();
@@ -724,7 +888,13 @@
           if (this.token) {
             headers['Authorization'] = `Bearer ${this.token}`;
           }
-          const res = await fetch(url, { ...options, headers });
+          let res;
+          try {
+            res = await fetch(url, { ...options, headers });
+          } catch(e) {
+            return { ok: false, status: 0, data: { error: 'INTERNAL_ERROR' } };
+          }
+
           let data = null;
           try {
             data = await res.json();
@@ -741,14 +911,29 @@
           }
         },
 
+        inspectPublicCourse(course) {
+          this.selectedCourseId = course.id;
+          if (this.token) {
+            this.currentTab = 'workspace';
+            if (this.isInstructor()) {
+              this.loadTeacherGrades();
+            } else if (this.isStudent()) {
+              this.loadStudentGrades();
+            }
+          } else {
+            this.notify('Khách tham quan: Vui lòng đăng nhập với vai trò Sinh viên hoặc Giảng viên để xem bảng điểm.', 'info');
+            this.openAuthModal('login');
+          }
+        },
+
         async loadMe() {
           const res = await this.api('/me');
           if (res.ok) {
             this.currentUser = res.data;
             this.startTTLCountdown(900);
-            if (this.currentUser.role === 'ADMIN') this.loadAuditLogs();
-            if (this.currentUser.role === 'INSTRUCTOR') this.loadTeacherGrades();
-            if (this.currentUser.role === 'STUDENT') this.loadStudentGrades();
+            if (this.isAdmin()) this.loadAuditLogs();
+            if (this.isInstructor()) this.loadTeacherGrades();
+            if (this.isStudent()) this.loadStudentGrades();
           } else {
             this.logout();
           }
@@ -762,31 +947,13 @@
           }, 1000);
         },
 
-        async quickLogin(email, expectedRole) {
-          const res = await this.api('/auth/login', {
-            method: 'POST',
-            body: JSON.stringify({ email: email, password: 'Lms@2026' })
-          });
-          if (res.ok) {
-            this.token = res.data.accessToken;
-            localStorage.setItem('accessToken', this.token);
-            await this.loadMe();
-            this.currentTab = 'workspace';
-          } else {
-            alert('Đăng nhập thất bại: ' + JSON.stringify(res.data));
-          }
-        },
-
-        switchGuest() {
-          this.logout();
-          this.currentTab = 'home';
-        },
-
         logout() {
           this.token = '';
           localStorage.removeItem('accessToken');
           this.currentUser = { id: '', email: 'guest@lms.test', role: 'GUEST' };
+          this.currentTab = 'home';
           if (this.ttlInterval) clearInterval(this.ttlInterval);
+          this.notify('Bạn đã đăng xuất khỏi hệ thống thành công.', 'info');
         },
 
         async submitLogin() {
@@ -799,8 +966,10 @@
             localStorage.setItem('accessToken', this.token);
             await this.loadMe();
             this.showAuthModal = false;
+            this.currentTab = 'workspace';
+            this.notify(`Đăng nhập thành công với vai trò ${this.formatRoleLabel(this.currentUser.role)}!`, 'success');
           } else {
-            this.authMsg = { type: 'error', text: 'Lỗi (' + res.status + '): ' + (res.data.error || 'Đăng nhập không thành công') };
+            this.authMsg = { type: 'error', text: this.formatErrorMessage(res.data.error) };
           }
         },
 
@@ -810,10 +979,10 @@
             body: JSON.stringify(this.registerForm)
           });
           if (res.ok) {
-            this.authMsg = { type: 'success', text: 'Đăng ký thành công tài khoản ' + res.data.email + '! Hãy chuyển qua tab Đăng nhập.' };
+            this.authMsg = { type: 'success', text: 'Đăng ký thành công tài khoản ' + res.data.email + '! Bạn có thể chuyển qua tab Đăng nhập ngay.' };
             this.loginForm.email = this.registerForm.email;
           } else {
-            this.authMsg = { type: 'error', text: 'Đăng ký thất bại: ' + (res.data.error || 'Dữ liệu không hợp lệ') };
+            this.authMsg = { type: 'error', text: this.formatErrorMessage(res.data.error) };
           }
         },
 
@@ -823,9 +992,9 @@
             body: JSON.stringify(this.resetForm)
           });
           if (res.ok) {
-            this.authMsg = { type: 'success', text: 'Đã cập nhật mật khẩu mới thành công! Hãy đăng nhập ngay.' };
+            this.authMsg = { type: 'success', text: 'Đã cập nhật mật khẩu mới thành công! Vui lòng đăng nhập với mật khẩu mới.' };
           } else {
-            this.authMsg = { type: 'error', text: 'Đặt lại mật khẩu thất bại: ' + (res.data.error || 'Lỗi hệ thống') };
+            this.authMsg = { type: 'error', text: this.formatErrorMessage(res.data.error) };
           }
         },
 
@@ -835,7 +1004,7 @@
             this.studentGrades = res.data;
           } else {
             this.studentGrades = [];
-            alert('Không thể lấy điểm: HTTP ' + res.status + ' - ' + JSON.stringify(res.data));
+            this.notify('Không thể tải bảng điểm: ' + this.formatErrorMessage(res.data.error), 'warning');
           }
         },
 
@@ -845,7 +1014,7 @@
             this.teacherGrades = res.data;
           } else {
             this.teacherGrades = [];
-            alert('Không thể lấy bảng điểm lớp: HTTP ' + res.status + ' - ' + JSON.stringify(res.data));
+            this.notify('Không thể tải bảng điểm lớp: ' + this.formatErrorMessage(res.data.error), 'warning');
           }
         },
 
@@ -856,11 +1025,11 @@
             body: JSON.stringify({ score: score })
           });
           if (res.ok) {
-            alert('Cập nhật điểm thành công: ' + JSON.stringify(res.data));
+            this.notify(`Cập nhật điểm thành công cho sinh viên ${this.updateForm.studentId}: ${score} điểm`, 'success');
             this.loadTeacherGrades();
-            if (this.currentUser.role === 'ADMIN') this.loadAuditLogs();
+            if (this.isAdmin()) this.loadAuditLogs();
           } else {
-            alert('Cập nhật thất bại: HTTP ' + res.status + ' - ' + JSON.stringify(res.data));
+            this.notify('Không thể cập nhật điểm: ' + this.formatErrorMessage(res.data.error), 'error');
           }
         },
 
@@ -869,33 +1038,6 @@
           if (res.ok) {
             this.auditLogs = res.data;
           }
-        },
-
-        async testGuestUnauthorized() {
-          const res = await fetch('/courses/c1/grades');
-          const data = await res.json();
-          alert('Gatekeeper đã chặn: HTTP ' + res.status + ' - ' + JSON.stringify(data));
-        },
-
-        async testStudentForbiddenEdit(courseId, studentId) {
-          const res = await this.api('/courses/' + courseId + '/grades/' + studentId, {
-            method: 'PUT',
-            body: JSON.stringify({ score: 10 })
-          });
-          alert('Kết quả: HTTP ' + res.status + ' - ' + JSON.stringify(res.data) + '\n(Được chặn chính xác bởi Lớp 3 & Lớp 4)');
-        },
-
-        async testChiGetC2Grades() {
-          const res = await this.api('/courses/c2/grades');
-          alert('Kết quả A8 (Chi GET c2): HTTP ' + res.status + ' - ' + JSON.stringify(res.data));
-        },
-
-        async testAdminForbiddenPut() {
-          const res = await this.api('/courses/c1/grades/u4', {
-            method: 'PUT',
-            body: JSON.stringify({ score: 10 })
-          });
-          alert('Kết quả A11 (Admin PUT điểm): HTTP ' + res.status + ' - ' + JSON.stringify(res.data));
         },
 
         setConsolePreset(method, endpoint, bodyObj) {
@@ -912,7 +1054,7 @@
             try {
               bodyPayload = JSON.parse(this.apiConsole.body);
             } catch(e) {
-              alert('JSON body không đúng cú pháp');
+              this.notify('Dữ liệu JSON không hợp lệ. Vui lòng kiểm tra lại cú pháp.', 'error');
               return;
             }
           }
