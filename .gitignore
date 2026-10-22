@@ -26,3 +26,7 @@ coverage.xml
 dist/
 build/
 *.egg-info/
+
+# Logs & Environment
+*.log
+.env

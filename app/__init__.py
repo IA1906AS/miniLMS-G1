@@ -183,3 +183,11 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         return jsonify(read_audit_logs(limit=100)), 200
 
     return app
+
+
+if __name__ == "__main__":
+    os.environ.setdefault("JWT_SECRET", "super_secret_jwt_key_that_is_at_least_32_characters_long")
+    _port = int(os.environ.get("PORT", 5000))
+    _app = create_app()
+    print(f"\n[INFO] miniLMS Web Portal running at: http://127.0.0.1:{_port}\n")
+    _app.run(host="127.0.0.1", port=_port, debug=True)
