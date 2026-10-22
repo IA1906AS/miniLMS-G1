@@ -4,6 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ShieldLMS — Nền tảng Học Trực tuyến & Bảo mật Đa tầng Defense-in-Depth</title>
+  <script>
+    // Suppress third-party Play CDN development warning
+    (function() {
+      const _origWarn = console.warn;
+      console.warn = function(...args) {
+        if (args[0] && typeof args[0] === 'string' && (args[0].includes('cdn.tailwindcss.com') || args[0].includes('Tailwind CSS in production'))) {
+          return;
+        }
+        _origWarn.apply(console, args);
+      };
+    })();
+  </script>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,7 +27,8 @@
     .glass { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(16px); }
     .glass-dark { background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(16px); }
   </style>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
+  <!-- Local Alpine.js: prevents Tracking Prevention blocks in Edge/Chrome, offline-capable -->
+  <script defer src="/static/vendor/alpine.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js'"></script>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen selection:bg-indigo-500 selection:text-white" x-data="lmsApp()" x-init="init()">
 
@@ -559,10 +572,12 @@
 
             <textarea rows="4" x-model="apiConsole.body" class="w-full px-3 py-2 rounded-xl bg-slate-800 border border-slate-700 text-xs font-mono text-white" placeholder='{"score": 9.0}'></textarea>
             
-            <div class="flex gap-2">
-              <button @click="sendConsoleRequest()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition">Gửi Request &rarr;</button>
-              <button @click="apiConsole.endpoint='/debug'; apiConsole.method='GET'; apiConsole.body=''" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Test /debug (A16)</button>
-              <button @click="apiConsole.endpoint='/courses/c1/grades/u4'; apiConsole.method='PUT'; apiConsole.body='{\"score\": true}'" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Test Boolean (A12)</button>
+            <div class="flex flex-wrap gap-2">
+              <button @click="sendConsoleRequest()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl transition shadow-md shadow-indigo-600/20">Gửi Request &rarr;</button>
+              <button @click="setConsolePreset('GET', '/debug', null)" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Test /debug (A1)</button>
+              <button @click="setConsolePreset('PUT', '/courses/c1/grades/u4', {score: true})" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Test Boolean (A13)</button>
+              <button @click="setConsolePreset('PUT', '/courses/c1/grades/u4', {score: '10'})" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Test String (A12)</button>
+              <button @click="setConsolePreset('PUT', '/courses/c1/grades/u4', {score: 11})" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl transition font-medium">Test Range (A14)</button>
             </div>
           </div>
 
@@ -883,9 +898,12 @@
           alert('Kết quả A11 (Admin PUT điểm): HTTP ' + res.status + ' - ' + JSON.stringify(res.data));
         },
 
-        async inspectPublicCourse(c) {
-          this.selectedCourseId = c.id;
-          this.currentTab = 'workspace';
+        setConsolePreset(method, endpoint, bodyObj) {
+          this.apiConsole.method = method;
+          this.apiConsole.endpoint = endpoint;
+          this.apiConsole.body = bodyObj !== null && bodyObj !== undefined ? JSON.stringify(bodyObj, null, 2) : '';
+          this.apiConsole.status = '';
+          this.apiConsole.response = '';
         },
 
         async sendConsoleRequest() {

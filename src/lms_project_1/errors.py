@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from flask import Flask, Response, jsonify
+from flask import Flask, Response, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 
@@ -74,6 +74,26 @@ def _sanitize_data(data: Any) -> Any:
 
 def sanitize_response(response: Response) -> Response:
     """Layer 6: Output policy guaranteeing no sensitive fields leak in response body."""
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+    response.headers["Server"] = "miniLMS-SecureGate"
+    try:
+        req_path = request.path if request else ""
+        if (
+            req_path.startswith("/api/")
+            or req_path.startswith("/courses/")
+            or req_path.startswith("/auth/")
+            or req_path.startswith("/account/")
+            or req_path == "/me"
+        ):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+    except Exception:
+        pass
+
     if response.is_json:
         try:
             raw_data = response.get_json(silent=True)

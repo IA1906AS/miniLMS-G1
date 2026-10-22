@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Flask, g, request
+from flask import Flask, Response, g, request
 
 from app.auth import verify_access_token
 from app.errors import Unauthenticated
@@ -51,3 +51,23 @@ def init_gate(app: Flask) -> None:
         g.current_actor = actor
         g.actor = actor
         return None
+
+    @app.after_request
+    def apply_security_headers(response: Response) -> Response:
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+        response.headers["Server"] = "miniLMS-SecureGate"
+        req_path = request.path if request else ""
+        if (
+            req_path.startswith("/api/")
+            or req_path.startswith("/courses/")
+            or req_path.startswith("/auth/")
+            or req_path.startswith("/account/")
+            or req_path == "/me"
+        ):
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response

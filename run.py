@@ -20,4 +20,5 @@ if __name__ == "__main__":
     app = create_app()
     print(f"\n[INFO] miniLMS Web Portal running at: http://127.0.0.1:{port}")
     print("[INFO] Open the URL above in your browser to access the 4-role UI.\n")
-    app.run(host="127.0.0.1", port=port, debug=True)
+    is_debug = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true")
+    app.run(host="127.0.0.1", port=port, debug=is_debug)
