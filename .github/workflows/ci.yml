@@ -1,0 +1,56 @@
+name: CI & Security SAST
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  quality-and-security:
+    name: Code Quality, Security & Testing
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      - name: Lint with Ruff
+        run: uv run ruff check .
+
+      - name: Format check with Ruff
+        run: uv run ruff format --check .
+
+      - name: Type check with Mypy
+        run: uv run mypy
+
+      - name: Run Semgrep SAST Scan
+        run: |
+          uv run semgrep scan \
+            --config=.semgrep/minilms_rules.yaml \
+            --config="p/python" \
+            --config="p/flask" \
+            --config="p/secrets" \
+            --metrics=off \
+            --sarif \
+            --output=semgrep.sarif
+
+      - name: Upload SARIF report to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+
+      - name: Run Pytest with Coverage
+        run: uv run pytest --cov

@@ -45,6 +45,7 @@ Dự án áp dụng bộ công cụ nghiêm ngặt để đảm bảo chất lư
 | **Type Checking** | `uv run mypy` | Kiểm tra kiểu dữ liệu tĩnh nghiêm ngặt (Strict mode) |
 | **Unit Testing** | `uv run pytest` | Chạy bộ kiểm thử tự động |
 | **Test Coverage** | `uv run pytest --cov` | Báo cáo tỷ lệ bao phủ kiểm thử (Test Coverage) |
+| **SAST Security** | `uv run semgrep scan --config=.semgrep/minilms_rules.yaml --metrics=off` | Quét tĩnh phát hiện lỗ hổng bảo mật và quy tắc phòng thủ miniLMS |
 | **Pre-commit Run** | `uv run pre-commit run --all-files` | Chạy thử nghiệm tất cả các hook trên toàn bộ tệp |
 
 ---
@@ -94,6 +95,7 @@ IAW301-Project_Group_1/
    uv run ruff check --fix
    uv run ruff format
    uv run mypy
+   uv run semgrep scan --config=.semgrep/minilms_rules.yaml --metrics=off
    uv run pytest --cov
    ```
 5. Commit code (Pre-commit hook sẽ tự động chạy để kiểm tra lại một lần nữa).

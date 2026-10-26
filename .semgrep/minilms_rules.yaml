@@ -1,0 +1,60 @@
+rules:
+  # 1. Phat hien bat debug=True trong Flask
+  - id: minilms-flask-debug-enabled
+    languages: [python]
+    severity: ERROR
+    message: "Flask app running with debug=True detected! Risk of RCE via Werkzeug interactive console."
+    pattern: $APP.run(..., debug=True, ...)
+
+  # 2. Phat hien Route nhay cam thieu Layer 3 RBAC Decorator
+  - id: minilms-unprotected-sensitive-route
+    languages: [python]
+    severity: ERROR
+    message: "Sensitive endpoint (admin/delete/update/grade) missing @require_role decorator."
+    patterns:
+      - pattern-inside: |
+          @$APP.route($ROUTE, ...)
+          def $FUNC(...):
+              ...
+      - pattern-not-inside: |
+          @$APP.route($ROUTE, ...)
+          @require_role(...)
+          def $FUNC(...):
+              ...
+      - metavariable-regex:
+          metavariable: $FUNC
+          regex: "(.*(delete|admin|create|update|grade|manage).*)"
+
+  # 3. Phat hien ro ri du lieu nhay cam vao Layer 4 Audit Log
+  - id: minilms-audit-log-leak
+    languages: [python]
+    severity: WARNING
+    message: "Do not pass passwords, password_hash, or secret tokens into audit_log."
+    pattern-either:
+      - pattern: audit_log(..., details=$PASS, ...)
+      - pattern: record_audit(..., password=...)
+      - pattern: record_audit(..., password_hash=...)
+    metavariable-regex:
+      metavariable: $PASS
+      regex: "(?i).*(password|secret|hash|token).*"
+
+  # 4. Ngan chan SQL Injection qua text() khong bind parameter
+  - id: minilms-raw-sql-concat
+    languages: [python]
+    severity: ERROR
+    message: "SQL string concatenation or f-string in SQLAlchemy text() detected. Use bind parameters instead."
+    pattern-either:
+      - pattern: text(f"...")
+      - pattern: text("..." % ...)
+      - pattern: text("..." + ...)
+      - pattern: text("...".format(...))
+
+  # 5. Ngan chan Insecure JWT Decode (Bo qua verify hoac fallback secret)
+  - id: minilms-insecure-jwt-verify
+    languages: [python]
+    severity: ERROR
+    message: "Insecure JWT decode! Must specify algorithms=['HS256'] and load secret from ENV."
+    pattern-either:
+      - pattern: jwt.decode($TOKEN, verify=False, ...)
+      - pattern: 'jwt.decode($TOKEN, options={"verify_signature": False}, ...)'
+      - pattern: jwt.decode($TOKEN, "secret", ...)

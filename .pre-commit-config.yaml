@@ -20,3 +20,11 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+
+      - id: semgrep-security
+        name: Semgrep SAST Scan
+        entry: uv run semgrep scan --config=.semgrep/minilms_rules.yaml --metrics=off --error
+        language: system
+        types: [python]
+        pass_filenames: false
+

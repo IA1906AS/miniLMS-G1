@@ -89,6 +89,7 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         ), 200
 
     @app.route("/courses/<course_id>/grades", methods=["GET"])
+    @require_role("ADMIN", "INSTRUCTOR", "STUDENT", "admin", "instructor", "student", "teacher")
     def get_course_grades(course_id: str) -> tuple[Response, int]:
         actor = getattr(g, "actor", None)
         if not actor or not isinstance(actor, dict):
@@ -344,4 +345,5 @@ if __name__ == "__main__":
     _port = int(os.environ.get("PORT", 5000))
     _app = create_app()
     print(f"\n[INFO] miniLMS Web Portal running at: http://127.0.0.1:{_port}\n")
-    _app.run(host="127.0.0.1", port=_port, debug=True)
+    _is_debug = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true")
+    _app.run(host="127.0.0.1", port=_port, debug=_is_debug)
