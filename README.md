@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/IA1906AS/miniLMS-G1/actions/workflows/ci.yml/badge.svg)](https://github.com/IA1906AS/miniLMS-G1/actions/workflows/ci.yml)
 
-Hệ thống quản trị học tập thu nhỏ (miniLMS) được xây dựng và chuẩn hóa quy trình phát triển bằng **Python** và **uv** (Astral).
+Hệ thống quản trị học tập thu nhỏ (miniLMS) được xây dựng và chuẩn hóa quy trình phát triển bằng **Python** và **uv** (Astral) với kiến trúc an ninh đa tầng **Defense-in-Depth (8 lớp bảo mật)**.
+
+> 📖 **Báo cáo Tổng Hợp Đầy Đủ:** Xem chi tiết toàn bộ chức năng, 8 tầng phòng thủ bảo mật, ma trận phân quyền và danh mục API tại [**`PROJECT_SECURITY_SUMMARY.md`**](PROJECT_SECURITY_SUMMARY.md).
 
 ---
 

@@ -12,12 +12,12 @@ rules:
     severity: ERROR
     message: "Sensitive endpoint (admin/delete/update/grade) missing @require_role decorator."
     patterns:
-      - pattern-inside: |
-          @$APP.route($ROUTE, ...)
+      - pattern: |
+          @$APP.route(...)
           def $FUNC(...):
               ...
       - pattern-not-inside: |
-          @$APP.route($ROUTE, ...)
+          @$APP.route(...)
           @require_role(...)
           def $FUNC(...):
               ...
@@ -31,12 +31,13 @@ rules:
     severity: WARNING
     message: "Do not pass passwords, password_hash, or secret tokens into audit_log."
     pattern-either:
-      - pattern: audit_log(..., details=$PASS, ...)
+      - patterns:
+          - pattern: audit_log(..., details=$PASS, ...)
+          - metavariable-regex:
+              metavariable: $PASS
+              regex: "(?i).*(password|secret|hash|token).*"
       - pattern: record_audit(..., password=...)
       - pattern: record_audit(..., password_hash=...)
-    metavariable-regex:
-      metavariable: $PASS
-      regex: "(?i).*(password|secret|hash|token).*"
 
   # 4. Ngan chan SQL Injection qua text() khong bind parameter
   - id: minilms-raw-sql-concat
