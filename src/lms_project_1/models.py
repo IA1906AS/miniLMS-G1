@@ -35,6 +35,7 @@ class User(Base):
         index=True,
     )
     hashed_password: Mapped[str] = mapped_column(
+        "password_hash",
         String(255),
         nullable=False,
     )
@@ -162,3 +163,61 @@ class Enrollment(Base):
         primary_key=True,
     )
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+
+class Assignment(Base):
+    """Assignment table for academic coursework."""
+
+    __tablename__ = "assignments"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    course_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
+    max_score: Mapped[float] = mapped_column(Float, nullable=False, default=10.0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+    )
+
+
+class Submission(Base):
+    """Submission table recording student assignment submissions."""
+
+    __tablename__ = "submissions"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    assignment_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("assignments.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    student_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    content: Mapped[str] = mapped_column(String(2000), nullable=False, default="")
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    feedback: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
+    submitted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+    )

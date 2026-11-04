@@ -71,7 +71,7 @@ def hash_password(plain_password: str, rounds: int = BCRYPT_ROUNDS) -> str:
     """
     salt = bcrypt.gensalt(rounds=rounds)
     hashed = bcrypt.hashpw(plain_password.encode("utf-8"), salt)
-    return hashed.decode("utf-8")
+    return str(hashed.decode("utf-8"))
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -152,6 +152,30 @@ def decode_access_token(token: str, secret: str) -> dict[str, Any]:
         return payload
     except (jwt.PyJWTError, Exception) as exc:
         raise Unauthenticated("Invalid or expired token") from exc
+
+
+def decode_refresh_token(token: str, secret: str) -> dict[str, Any]:
+    """Decode and verify a JWT refresh token using HS256 algorithm only."""
+    if not secret or len(secret) < 32:
+        raise RuntimeError("JWT_SECRET must be configured and >= 32 characters")
+
+    try:
+        payload = jwt.decode(
+            token,
+            secret,
+            algorithms=["HS256"],
+            options={
+                "require": ["sub", "iat", "exp", "type"],
+                "verify_exp": True,
+                "verify_iat": True,
+                "verify_signature": True,
+            },
+        )
+        if not isinstance(payload, dict) or payload.get("type") != "refresh":
+            raise Unauthenticated("Invalid refresh token type")
+        return payload
+    except (jwt.PyJWTError, Exception) as exc:
+        raise Unauthenticated("Invalid or expired refresh token") from exc
 
 
 class BruteForceTracker:
@@ -469,3 +493,55 @@ def reset_password() -> tuple[Response, int]:
     store.mark_password_reset_token_used(token_rec["id"])
 
     return jsonify({"message": "Password has been successfully reset."}), 200
+
+
+@auth_bp.post("/refresh")
+def refresh() -> tuple[Response, int]:
+    """POST /auth/refresh endpoint.
+
+    Accepts {"refreshToken": "..."} in body or Bearer token in Authorization header.
+    Validates token and returns new accessToken and new refreshToken.
+    """
+    token_str: str | None = None
+    if request.is_json:
+        try:
+            body = request.get_json(silent=True)
+            if isinstance(body, dict):
+                token_str = body.get("refreshToken")
+        except Exception:
+            pass
+
+    if not token_str:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token_str = auth_header.split(" ", 1)[1].strip()
+
+    if not token_str or not isinstance(token_str, str):
+        raise ValidationError("Missing refreshToken in request body or Authorization header")
+
+    secret: str = current_app.config.get("JWT_SECRET", "")
+    ttl: int = int(current_app.config.get("TOKEN_TTL_SECONDS", 900))
+    store: Any = current_app.config.get("STORE")
+
+    payload = decode_refresh_token(token_str.strip(), secret)
+    user_id = str(payload.get("sub", ""))
+    user = store.get_user_by_id(user_id) if store else None
+    if not user or not user.get("is_active", True):
+        raise Unauthenticated("User not found or inactive")
+
+    new_access_token = create_access_token(
+        user["id"],
+        secret=secret,
+        ttl_seconds=ttl,
+        role=user.get("role"),
+        email=user.get("email"),
+    )
+    new_refresh_token = create_refresh_token(user["id"], secret=secret)
+
+    return jsonify(
+        {
+            "accessToken": new_access_token,
+            "refreshToken": new_refresh_token,
+            "expiresIn": ttl,
+        }
+    ), 200

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +32,10 @@ class Store:
         self.enrollments: dict[tuple[str, str], dict[str, Any]] = {}
         # In-memory reset tokens: token_hash -> record dict
         self.reset_tokens: dict[str, dict[str, Any]] = {}
+        # Assignments: assignment_id -> dict
+        self.assignments: dict[str, dict[str, Any]] = {}
+        # Submissions: (assignment_id, student_id) -> dict
+        self.submissions: dict[tuple[str, str], dict[str, Any]] = {}
 
         if seed_data is not None:
             self._load_data(seed_data)
@@ -438,6 +442,185 @@ class Store:
             "score": float(new_score),
         }
         return updated_record, float(old_score or 0.0)
+
+    def create_course(
+        self,
+        course_id: str,
+        title: str,
+        instructor_id: str,
+        description: str = "",
+        duration_hours: int = 30,
+        thumbnail: str = "",
+    ) -> dict[str, Any]:
+        """Create and persist a course."""
+        cid = str(course_id)
+        if self.db_session is not None:
+            try:
+                c = Course(id=cid, title=title, instructor_id=instructor_id)
+                self.db_session.add(c)
+                self.db_session.commit()
+            except Exception:
+                self.db_session.rollback()
+
+        course_rec = {
+            "id": cid,
+            "title": title,
+            "instructorId": instructor_id,
+            "description": description,
+            "durationHours": duration_hours,
+            "thumbnail": thumbnail
+            or "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=600",
+            "isFeatured": False,
+            "lessons": [{"id": f"{cid}-l1", "title": "Bài 1: Giới thiệu & Tổng quan"}],
+        }
+        self.courses[cid] = course_rec
+        return dict(course_rec)
+
+    def enroll_student(self, course_id: str, student_id: str) -> dict[str, Any]:
+        """Enroll student in a course with initial score 0.0."""
+        cid = str(course_id)
+        sid = str(student_id)
+        if (cid, sid) in self.enrollments:
+            raise ValueError(f"Student {sid} is already enrolled in course {cid}")
+
+        if self.db_session is not None:
+            try:
+                enr = Enrollment(course_id=cid, student_id=sid, score=0.0)
+                self.db_session.add(enr)
+                self.db_session.commit()
+            except Exception:
+                self.db_session.rollback()
+
+        rec = {
+            "courseId": cid,
+            "studentId": sid,
+            "score": 0.0,
+            "enrolledAt": datetime.now(UTC).strftime("%Y-%m-%d"),
+            "completedLessons": [],
+        }
+        self.enrollments[(cid, sid)] = rec
+        return dict(rec)
+
+    def add_lesson(self, course_id: str, title: str) -> dict[str, Any]:
+        """Add a lesson to a course."""
+        cid = str(course_id)
+        course = self.courses.get(cid)
+        if not course:
+            raise KeyError(f"Course {cid} not found")
+
+        lessons = course.setdefault("lessons", [])
+        lesson_id = f"{cid}-l{len(lessons) + 1}"
+        lesson = {"id": lesson_id, "title": title}
+        lessons.append(lesson)
+        return dict(lesson)
+
+    def complete_lesson(self, course_id: str, student_id: str, lesson_id: str) -> dict[str, Any]:
+        """Mark a lesson as completed for an enrolled student."""
+        cid = str(course_id)
+        sid = str(student_id)
+        key = (cid, sid)
+        enr = self.enrollments.get(key)
+        if not enr:
+            raise KeyError(f"Enrollment not found for student {sid} in course {cid}")
+
+        completed = enr.setdefault("completedLessons", [])
+        if lesson_id not in completed:
+            completed.append(lesson_id)
+
+        course = self.courses.get(cid, {})
+        total_lessons = len(course.get("lessons", []))
+        completed_count = len(completed)
+        progress = round(completed_count / total_lessons * 100) if total_lessons > 0 else 100
+
+        return {
+            "courseId": cid,
+            "studentId": sid,
+            "completedLessons": list(completed),
+            "progress": progress,
+        }
+
+    def create_assignment(
+        self,
+        course_id: str,
+        title: str,
+        description: str = "",
+        max_score: float = 10.0,
+        assignment_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Create and persist an assignment."""
+        aid = assignment_id or str(uuid.uuid4())
+        rec = {
+            "id": aid,
+            "courseId": str(course_id),
+            "title": title,
+            "description": description,
+            "maxScore": float(max_score),
+            "createdAt": datetime.now(UTC).isoformat(),
+        }
+        self.assignments[aid] = rec
+        return dict(rec)
+
+    def get_assignments(self, course_id: str) -> list[dict[str, Any]]:
+        """Return all assignments for a course."""
+        return [dict(a) for a in self.assignments.values() if a.get("courseId") == str(course_id)]
+
+    def get_assignment_by_id(self, assignment_id: str) -> dict[str, Any] | None:
+        """Find assignment by ID."""
+        rec = self.assignments.get(str(assignment_id))
+        return dict(rec) if rec else None
+
+    def submit_assignment(
+        self,
+        assignment_id: str,
+        student_id: str,
+        content: str,
+    ) -> dict[str, Any]:
+        """Submit an assignment solution."""
+        aid = str(assignment_id)
+        sid = str(student_id)
+        sub_id = str(uuid.uuid4())
+        rec = {
+            "id": sub_id,
+            "assignmentId": aid,
+            "studentId": sid,
+            "content": content,
+            "score": None,
+            "feedback": "",
+            "submittedAt": datetime.now(UTC).isoformat(),
+        }
+        self.submissions[(aid, sid)] = rec
+        return dict(rec)
+
+    def get_submissions(self, assignment_id: str) -> list[dict[str, Any]]:
+        """Return all submissions for an assignment."""
+        aid = str(assignment_id)
+        results = []
+        for (a_id, s_id), sub in self.submissions.items():
+            if a_id == aid:
+                student = self.get_user_by_id(s_id)
+                sub_copy = dict(sub)
+                sub_copy["studentEmail"] = student.get("email", "") if student else ""
+                sub_copy["studentName"] = student.get("fullName", "") if student else ""
+                results.append(sub_copy)
+        return results
+
+    def grade_submission(
+        self,
+        assignment_id: str,
+        student_id: str,
+        score: float,
+        feedback: str = "",
+    ) -> tuple[dict[str, Any], float | None]:
+        """Update grade for a student's assignment submission."""
+        aid = str(assignment_id)
+        sid = str(student_id)
+        sub = self.submissions.get((aid, sid))
+        if not sub:
+            raise KeyError(f"Submission not found for assignment {aid} and student {sid}")
+        old_score = sub.get("score")
+        sub["score"] = float(score)
+        sub["feedback"] = str(feedback)
+        return dict(sub), (float(old_score) if old_score is not None else None)
 
     def get_user_profile(self, user_id: str) -> dict[str, Any] | None:
         """Retrieve sanitized profile for user_id (no password hash)."""

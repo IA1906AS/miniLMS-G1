@@ -22,6 +22,7 @@ PUBLIC_AUTH_ENDPOINTS: set[tuple[str, str]] = {
     ("POST", "/auth/register"),
     ("POST", "/auth/forgot-password"),
     ("POST", "/auth/reset-password"),
+    ("POST", "/auth/refresh"),
     ("GET", "/"),
     ("GET", "/api/public/courses"),
 }

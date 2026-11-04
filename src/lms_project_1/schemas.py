@@ -250,3 +250,131 @@ def validate_notifications_payload(data: Any) -> dict[str, bool]:
         result[key] = val
 
     return result
+
+
+def validate_create_course_payload(data: Any) -> dict[str, Any]:
+    """Validate course creation payload: {title, description?, durationHours?, instructorId?}."""
+    if not isinstance(data, dict):
+        raise ValidationError("Request body must be a JSON object")
+
+    if "title" not in data or not isinstance(data["title"], str) or not data["title"].strip():
+        raise ValidationError("'title' must be a non-empty string")
+
+    title = data["title"].strip()
+    if len(title) > 200:
+        raise ValidationError("'title' cannot exceed 200 characters")
+
+    description = ""
+    if "description" in data:
+        if not isinstance(data["description"], str):
+            raise ValidationError("'description' must be a string")
+        description = data["description"].strip()
+        if len(description) > 1000:
+            raise ValidationError("'description' cannot exceed 1000 characters")
+
+    duration_hours = 30
+    if "durationHours" in data:
+        val = data["durationHours"]
+        if isinstance(val, bool) or not isinstance(val, (int, float)) or val <= 0:
+            raise ValidationError("'durationHours' must be a positive number")
+        duration_hours = int(val)
+
+    result: dict[str, Any] = {
+        "title": title,
+        "description": description,
+        "durationHours": duration_hours,
+    }
+    if "instructorId" in data and isinstance(data["instructorId"], str):
+        result["instructorId"] = data["instructorId"].strip()
+
+    return result
+
+
+def validate_add_lesson_payload(data: Any) -> str:
+    """Validate add lesson payload: strictly requires non-empty {title}."""
+    if not isinstance(data, dict):
+        raise ValidationError("Request body must be a JSON object")
+
+    title = data.get("title")
+    if not isinstance(title, str) or not title.strip():
+        raise ValidationError("'title' must be a non-empty string")
+
+    title_str = title.strip()
+    if len(title_str) > 200:
+        raise ValidationError("'title' cannot exceed 200 characters")
+
+    return title_str
+
+
+def validate_create_assignment_payload(data: Any) -> dict[str, Any]:
+    """Validate assignment creation payload: {title, description?, maxScore?}."""
+    if not isinstance(data, dict):
+        raise ValidationError("Request body must be a JSON object")
+
+    title = data.get("title")
+    if not isinstance(title, str) or not title.strip():
+        raise ValidationError("'title' must be a non-empty string")
+
+    title_str = title.strip()
+    if len(title_str) > 200:
+        raise ValidationError("'title' cannot exceed 200 characters")
+
+    description = ""
+    if "description" in data:
+        if not isinstance(data["description"], str):
+            raise ValidationError("'description' must be a string")
+        description = data["description"].strip()
+        if len(description) > 1000:
+            raise ValidationError("'description' cannot exceed 1000 characters")
+
+    max_score = 10.0
+    if "maxScore" in data:
+        val = data["maxScore"]
+        if isinstance(val, bool) or not isinstance(val, (int, float)) or val <= 0 or val > 100:
+            raise ValidationError("'maxScore' must be a positive number up to 100")
+        max_score = float(val)
+
+    return {
+        "title": title_str,
+        "description": description,
+        "maxScore": max_score,
+    }
+
+
+def validate_submit_assignment_payload(data: Any) -> str:
+    """Validate assignment submission payload: {content}."""
+    if not isinstance(data, dict):
+        raise ValidationError("Request body must be a JSON object")
+
+    content = data.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise ValidationError("'content' must be a non-empty string")
+
+    content_str = content.strip()
+    if len(content_str) > 5000:
+        raise ValidationError("'content' cannot exceed 5000 characters")
+
+    return content_str
+
+
+def validate_grade_submission_payload(data: Any, max_score: float = 10.0) -> tuple[float, str]:
+    """Validate assignment grading payload: {score, feedback?}."""
+    if not isinstance(data, dict):
+        raise ValidationError("Request body must be a JSON object")
+
+    score = data.get("score")
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        raise ValidationError("'score' must be a numeric value")
+
+    if math.isnan(score) or math.isinf(score) or score < 0.0 or score > max_score:
+        raise ValidationError(f"'score' must be within [0, {max_score}]")
+
+    feedback = ""
+    if "feedback" in data:
+        if not isinstance(data["feedback"], str):
+            raise ValidationError("'feedback' must be a string")
+        feedback = data["feedback"].strip()
+        if len(feedback) > 1000:
+            raise ValidationError("'feedback' cannot exceed 1000 characters")
+
+    return float(score), feedback

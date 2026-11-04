@@ -92,7 +92,7 @@ addopts = [
 
 [tool.coverage.run]
 branch = true
-source = ["lms_project_1", "app"]
+source = ["lms_project_1"]
 omit = ["tests/*"]
 
 [tool.coverage.report]

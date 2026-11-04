@@ -18,6 +18,13 @@ except ImportError:
     from app import create_app
 
 if __name__ == "__main__":
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv()
+    except ImportError:
+        pass
+
     os.environ.setdefault("JWT_SECRET", "super_secret_jwt_key_that_is_at_least_32_characters_long")
     port = int(os.environ.get("PORT", 5000))
     app = create_app()

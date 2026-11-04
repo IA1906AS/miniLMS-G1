@@ -168,10 +168,85 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             200,
         )
 
+    @app.route("/courses", methods=["POST"])
+    @require_role("TEACHER", "teacher", "INSTRUCTOR", "instructor", "ADMIN", "admin")
+    def create_new_course() -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        validated = schemas.validate_create_course_payload(body)
+        new_course = services.create_course(actor, validated, store=store)
+        return jsonify(new_course), 201
+
+    @app.route("/courses/<course_id>", methods=["GET"])
+    def get_course_detail(course_id: str) -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        course_data = services.get_course(actor, course_id, store=store)
+        return jsonify(course_data), 200
+
+    @app.route("/courses/<course_id>/enroll", methods=["POST"])
+    @require_role("STUDENT", "student")
+    def post_enroll_course(course_id: str) -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        enrollment = services.enroll_in_course(actor, course_id, store=store)
+        return (
+            jsonify({"message": "Ghi danh khóa học thành công", "enrollment": enrollment}),
+            201,
+        )
+
+    @app.route("/courses/<course_id>/lessons", methods=["POST"])
+    @require_role("TEACHER", "teacher", "INSTRUCTOR", "instructor", "ADMIN", "admin")
+    def create_course_lesson(course_id: str) -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        title = schemas.validate_add_lesson_payload(body)
+        lesson = services.add_course_lesson(actor, course_id, title, store=store)
+        return jsonify(lesson), 201
+
+    @app.route("/courses/<course_id>/lessons/<lesson_id>/complete", methods=["POST"])
+    @require_role("STUDENT", "student")
+    def post_complete_lesson(course_id: str, lesson_id: str) -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        result = services.complete_course_lesson(actor, course_id, lesson_id, store=store)
+        return jsonify(result), 200
+
+    @app.route("/courses/<course_id>/assignments", methods=["GET"])
+    def get_course_assignments(course_id: str) -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        assignments = services.get_course_assignments(actor, course_id, store=store)
+        return jsonify(assignments), 200
+
     @app.route("/courses/<course_id>/assignments", methods=["POST"])
     @require_role("TEACHER", "teacher", "INSTRUCTOR", "instructor", "ADMIN", "admin")
     def post_course_assignment(course_id: str) -> tuple[Response, int]:
         """Teacher/Admin assignment creation endpoint (RBAC TC02, TC03)."""
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+
         course = store.get_course_by_id(course_id)
         if course is None:
             raise NotFound(f"Course '{course_id}' not found")
@@ -183,8 +258,91 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         except Exception as exc:
             raise ValidationError("Malformed JSON") from exc
 
-        title = str(body.get("title", "Untitled Assignment"))
-        return jsonify({"courseId": course_id, "title": title, "status": "created"}), 201
+        validated = schemas.validate_create_assignment_payload(body)
+        assignment = services.create_course_assignment(actor, course_id, validated, store=store)
+        return (
+            jsonify(
+                {
+                    "id": assignment.get("id"),
+                    "courseId": course_id,
+                    "title": assignment["title"],
+                    "description": assignment.get("description", ""),
+                    "maxScore": assignment.get("maxScore", 10.0),
+                    "status": "created",
+                }
+            ),
+            201,
+        )
+
+    @app.route("/courses/<course_id>/assignments/<assignment_id>/submit", methods=["POST"])
+    @require_role("STUDENT", "student")
+    def post_assignment_submission(course_id: str, assignment_id: str) -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        content = schemas.validate_submit_assignment_payload(body)
+        sub = services.submit_course_assignment(
+            actor, course_id, assignment_id, content, store=store
+        )
+        return jsonify({"message": "Nộp bài thành công", "submission": sub}), 201
+
+    @app.route("/courses/<course_id>/assignments/<assignment_id>/submissions", methods=["GET"])
+    @require_role("TEACHER", "teacher", "INSTRUCTOR", "instructor", "ADMIN", "admin")
+    def get_assignment_submissions(course_id: str, assignment_id: str) -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        subs = services.get_assignment_submissions(actor, course_id, assignment_id, store=store)
+        return jsonify(subs), 200
+
+    @app.route(
+        "/courses/<course_id>/assignments/<assignment_id>/submissions/<student_id>/grade",
+        methods=["PUT"],
+    )
+    @require_role("INSTRUCTOR", "instructor", "TEACHER", "teacher")
+    def grade_assignment_submission(
+        course_id: str, assignment_id: str, student_id: str
+    ) -> tuple[Response, int]:
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        assignment = store.get_assignment_by_id(assignment_id)
+        max_score = float(assignment.get("maxScore", 10.0)) if assignment else 10.0
+        score, feedback = schemas.validate_grade_submission_payload(body, max_score=max_score)
+        result = services.grade_assignment_submission(
+            actor, course_id, assignment_id, student_id, score, feedback=feedback, store=store
+        )
+        old_score = result.pop("_old_score", None)
+
+        from lms_project_1.audit import log_event
+
+        log_event(
+            log_path=app.config.get("AUDIT_LOG_PATH", "audit.log"),
+            actor_id=actor["id"],
+            action="GRADE_ASSIGNMENT",
+            resource=f"/courses/{course_id}/assignments/{assignment_id}/submissions/{student_id}",
+            result="SUCCESS",
+            old_score=old_score,
+            new_score=score,
+        )
+        return (
+            jsonify({"message": "Chấm điểm bài tập thành công", "submission": result}),
+            200,
+        )
 
     # 9. Home & Dashboard Endpoints
     @app.route("/home", methods=["GET"])
@@ -311,6 +469,20 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
 
         records = read_audit_logs(limit=100, log_path=log_path)
         return jsonify(records), 200
+
+    @app.route("/api/admin/users", methods=["GET"])
+    @require_role("ADMIN", "admin")
+    def get_admin_users() -> tuple[Response, int]:
+        users_list = [
+            {
+                "id": u["id"],
+                "email": u["email"],
+                "role": u.get("role", "STUDENT"),
+                "fullName": u.get("fullName") or u.get("email", ""),
+            }
+            for u in store.users.values()
+        ]
+        return jsonify(users_list), 200
 
     return app
 
