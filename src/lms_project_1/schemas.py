@@ -50,9 +50,16 @@ def validate_register_payload(data: Any) -> dict[str, str]:
     if not isinstance(data, dict):
         raise ValidationError("Request body must be a JSON object")
 
-    allowed_keys = {"email", "password", "full_name", "role"}
+    payload = dict(data)
+    if "fullName" in payload and "full_name" not in payload:
+        payload["full_name"] = payload.pop("fullName")
+    elif "full_name" not in payload and "email" in payload and isinstance(payload["email"], str):
+        local_part = payload["email"].split("@")[0].replace(".", " ").title()
+        payload["full_name"] = local_part or "Học viên"
+
+    allowed_keys = {"email", "password", "full_name", "role", "fullName"}
     required_keys = {"email", "password", "full_name"}
-    data_keys = set(data.keys())
+    data_keys = set(payload.keys())
 
     if not required_keys.issubset(data_keys):
         missing = required_keys - data_keys
@@ -62,18 +69,18 @@ def validate_register_payload(data: Any) -> dict[str, str]:
         extra = data_keys - allowed_keys
         raise ValidationError(f"Unexpected extra fields: {', '.join(sorted(extra))}")
 
-    email = validate_email_format(data["email"])
-    password = validate_password_strength(data["password"])
+    email = validate_email_format(payload["email"])
+    password = validate_password_strength(payload["password"])
 
-    full_name = data.get("full_name")
+    full_name = payload.get("full_name")
     if not isinstance(full_name, str) or not full_name.strip():
         raise ValidationError("full_name must be a non-empty string")
     if len(full_name.strip()) > 100:
         raise ValidationError("full_name cannot exceed 100 characters")
 
-    role = data.get("role", "guest")
+    role = payload.get("role", "guest")
     if not isinstance(role, str) or role.lower() not in VALID_ROLES:
-        raise ValidationError(f"Invalid role. Allowed roles: {', '.join(sorted(VALID_ROLES))}")
+        role = "student" if str(role).lower() in ("student", "sinh vien") else "guest"
 
     return {
         "email": email,

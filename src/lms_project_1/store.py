@@ -236,6 +236,15 @@ class Store:
             "role": role,
             "password_hash": password_hash,
             "full_name": full_name,
+            "fullName": full_name,
+            "phone": "",
+            "bio": "",
+            "avatarUrl": "",
+            "notifications": {
+                "emailNewCourses": True,
+                "emailAssignments": True,
+                "emailGradeUpdates": True,
+            },
             "is_active": is_active,
             "is_verified": is_verified,
         }

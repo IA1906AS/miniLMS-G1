@@ -1,29 +1,29 @@
-# Dùng hook "local" với `uv run` để đảm bảo dùng đúng phiên bản đã khóa trong uv.lock
+# Dùng hook "local" với `uv run --no-sync` để đảm bảo dùng đúng môi trường không bị lock rebuild
 repos:
   - repo: local
     hooks:
       - id: ruff-check
         name: ruff check
-        entry: uv run ruff check --fix
+        entry: uv run --no-sync ruff check --fix
         language: system
         types: [python]
 
       - id: ruff-format
         name: ruff format
-        entry: uv run ruff format
+        entry: uv run --no-sync ruff format
         language: system
         types: [python]
 
       - id: mypy
         name: mypy
-        entry: uv run mypy --no-native-parser
+        entry: uv run --no-sync mypy --no-native-parser
         language: system
         types: [python]
         pass_filenames: false
 
       - id: semgrep-security
         name: Semgrep SAST Scan
-        entry: uv run semgrep scan --config=.semgrep/minilms_rules.yaml --metrics=off --error
+        entry: uv run --no-sync semgrep scan --config=.semgrep/minilms_rules.yaml --metrics=off --error
         language: system
         types: [python]
         pass_filenames: false
