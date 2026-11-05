@@ -12,7 +12,7 @@ from flask import Flask
 from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import Session, scoped_session, sessionmaker
 
-from lms_project_1.models import Base, Course, Enrollment, User
+from lms_project_1.models import Assignment, Base, Course, Enrollment, Submission, User
 
 DEFAULT_POSTGRES_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/lms_db"
 
@@ -132,6 +132,29 @@ def seed_db(
             score=float(e["score"]),
         )
         session.add(enrollment)
+
+    # 4. Seed assignments
+    for a in data.get("assignments", []):
+        assignment = Assignment(
+            id=str(a["id"]),
+            course_id=str(a.get("courseId", "")),
+            title=str(a.get("title", "")),
+            description=str(a.get("description", "")),
+            max_score=float(a.get("maxScore", 10.0)),
+        )
+        session.add(assignment)
+
+    # 5. Seed submissions
+    for s in data.get("submissions", []):
+        submission = Submission(
+            id=str(s["id"]),
+            assignment_id=str(s.get("assignmentId", "")),
+            student_id=str(s.get("studentId", "")),
+            content=str(s.get("content", "")),
+            score=float(s["score"]) if s.get("score") is not None else None,
+            feedback=str(s.get("feedback", "")),
+        )
+        session.add(submission)
 
     session.commit()
 

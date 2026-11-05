@@ -47,6 +47,11 @@ class NotFoundError(AppError):
     error_code = "NOT_FOUND"
 
 
+class ConflictError(AppError):
+    status_code = 409
+    error_code = "CONFLICT"
+
+
 class AccountLockedError(AppError):
     status_code = 429
     error_code = "ACCOUNT_LOCKED"
@@ -60,6 +65,7 @@ class InternalError(AppError):
 # Aliases conforming to exact PDF naming specification
 Forbidden = ForbiddenError
 NotFound = NotFoundError
+Conflict = ConflictError
 InvalidCredentials = InvalidCredentialsError
 Unauthenticated = UnauthenticatedError
 AccountLocked = AccountLockedError
@@ -113,7 +119,11 @@ def register_error_handlers(app: Flask) -> None:
 
     @app.errorhandler(AppError)
     def handle_app_error(exc: AppError) -> tuple[Response, int]:
-        return jsonify({"error": exc.error_code}), exc.status_code
+        data: dict[str, Any] = {"error": exc.error_code}
+        if isinstance(exc, ConflictError):
+            default_msg = "Request is currently being processed"
+            data["message"] = str(exc) if str(exc) != exc.error_code else default_msg
+        return jsonify(data), exc.status_code
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(exc: HTTPException) -> tuple[Response, int]:
@@ -124,6 +134,7 @@ def register_error_handlers(app: Flask) -> None:
             403: "FORBIDDEN",
             404: "NOT_FOUND",
             405: "METHOD_NOT_ALLOWED",
+            409: "CONFLICT",
             429: "ACCOUNT_LOCKED",
             500: "INTERNAL_ERROR",
         }

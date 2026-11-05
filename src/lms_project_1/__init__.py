@@ -293,6 +293,142 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
         )
         return jsonify({"message": "Nộp bài thành công", "submission": sub}), 201
 
+    # Idempotency Pattern Demo Endpoints (Prompt 2: Vulnerable vs Patched)
+    @app.route("/assignments/submit-vulnerable", methods=["POST"])
+    @require_role("STUDENT", "student")
+    def post_assignment_submission_vulnerable() -> tuple[Response, int]:
+        """Vulnerable endpoint: no Idempotency Key, prone to race conditions."""
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        validated = schemas.validate_submission_request_payload(body)
+        sub = services.submit_assignment_vulnerable(
+            actor=actor,
+            course_id=validated["course_id"],
+            content=validated["content"],
+            assignment_id=validated.get("assignment_id"),
+            store=store,
+        )
+        return (
+            jsonify(
+                {
+                    "message": "Nộp bài thành công (Vulnerable - No Idempotency)",
+                    "submission": sub,
+                    "warning": (
+                        "Mã nguồn phiên bản lỗi: Không có Idempotency Key, "
+                        "dễ bị Race Condition / Double Submit."
+                    ),
+                }
+            ),
+            201,
+        )
+
+    @app.route("/assignments/submit-secure", methods=["POST"])
+    @require_role("STUDENT", "student")
+    def post_assignment_submission_secure() -> tuple[Response, int]:
+        """Patched endpoint: protected with Idempotency Key header."""
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        idempotency_key = request.headers.get("Idempotency-Key") or request.headers.get(
+            "X-Idempotency-Key"
+        )
+        if not idempotency_key or not idempotency_key.strip():
+            raise ValidationError("Header 'Idempotency-Key' là bắt buộc đối với endpoint an toàn")
+
+        validated = schemas.validate_submission_request_payload(body)
+        data, status_code = services.submit_assignment_secure(
+            actor=actor,
+            course_id=validated["course_id"],
+            content=validated["content"],
+            idempotency_key=idempotency_key.strip(),
+            assignment_id=validated.get("assignment_id"),
+            store=store,
+        )
+        return jsonify(data), status_code
+
+    @app.route("/assignments/submit", methods=["POST"])
+    @require_role("STUDENT", "student")
+    def post_assignment_submit_unified() -> tuple[Response, int]:
+        """Unified endpoint: dispatches to secure version if Idempotency-Key is present."""
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        try:
+            body = request.get_json(silent=False)
+        except Exception as exc:
+            raise ValidationError("Malformed JSON") from exc
+
+        idempotency_key = request.headers.get("Idempotency-Key") or request.headers.get(
+            "X-Idempotency-Key"
+        )
+        validated = schemas.validate_submission_request_payload(body)
+
+        if idempotency_key and idempotency_key.strip():
+            data, status_code = services.submit_assignment_secure(
+                actor=actor,
+                course_id=validated["course_id"],
+                content=validated["content"],
+                idempotency_key=idempotency_key.strip(),
+                assignment_id=validated.get("assignment_id"),
+                store=store,
+            )
+            return jsonify(data), status_code
+        else:
+            sub = services.submit_assignment_vulnerable(
+                actor=actor,
+                course_id=validated["course_id"],
+                content=validated["content"],
+                assignment_id=validated.get("assignment_id"),
+                store=store,
+            )
+            return (
+                jsonify(
+                    {
+                        "message": "Nộp bài thành công (Chưa có Idempotency-Key)",
+                        "submission": sub,
+                    }
+                ),
+                201,
+            )
+
+    @app.route("/assignments/submissions", methods=["GET"])
+    def get_all_submissions_list() -> tuple[Response, int]:
+        """View all submissions to inspect and verify duplicate submissions."""
+        actor = getattr(g, "actor", None)
+        if not actor or not isinstance(actor, dict):
+            raise Unauthenticated("Unauthenticated")
+
+        course_id = request.args.get("course_id")
+        assignment_id = request.args.get("assignment_id")
+        role = str(actor.get("role", "")).upper()
+        student_id = (
+            str(actor.get("id", "")) if role == "STUDENT" else request.args.get("student_id")
+        )
+
+        submissions = store.get_all_submissions(
+            student_id=student_id,
+            course_id=course_id,
+            assignment_id=assignment_id,
+        )
+        return jsonify(submissions), 200
+
     @app.route("/courses/<course_id>/assignments/<assignment_id>/submissions", methods=["GET"])
     @require_role("TEACHER", "teacher", "INSTRUCTOR", "instructor", "ADMIN", "admin")
     def get_assignment_submissions(course_id: str, assignment_id: str) -> tuple[Response, int]:

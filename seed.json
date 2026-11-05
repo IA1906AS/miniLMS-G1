@@ -137,5 +137,54 @@
       "enrolledAt": "2026-02-18",
       "completedLessons": ["c2-l1", "c2-l2", "c2-l3", "c2-l4"]
     }
+  ],
+  "assignments": [
+    {
+      "id": "a1",
+      "courseId": "c1",
+      "title": "Bài tập Lớn: Triển khai RESTful API miniLMS",
+      "description": "Xây dựng toàn bộ các endpoint xác thực, danh sách khóa học và cập nhật điểm với chuẩn mã HTTP.",
+      "maxScore": 10.0
+    },
+    {
+      "id": "a2",
+      "courseId": "c2",
+      "title": "Bài thực hành: Chuẩn hóa Schema & Tối ưu Chỉ mục",
+      "description": "Viết mã script DDL tạo bảng, khóa chính, khóa ngoại và phân tích kế hoạch EXPLAIN ANALYZE.",
+      "maxScore": 10.0
+    },
+    {
+      "id": "a3",
+      "courseId": "c3",
+      "title": "Đồ án An toàn: Kiểm thử Tầng Phòng Thủ Đa Tầng",
+      "description": "Thực hiện kiểm thử tự động 8 tầng bảo mật, quét mã tĩnh Semgrep SAST và kiểm thử IDOR.",
+      "maxScore": 10.0
+    }
+  ],
+  "submissions": [
+    {
+      "id": "sub1",
+      "assignmentId": "a1",
+      "studentId": "u4",
+      "content": "Em đã hoàn thành bài tập nộp tại repo GitHub: https://github.com/linhchi/web-lms-assignment1.git kèm mã nguồn API.",
+      "score": 8.5,
+      "feedback": "Cấu trúc thư mục tốt, tuân thủ đúng chuẩn REST và trả mã HTTP 200/201 chuẩn xác."
+    },
+    {
+      "id": "sub2",
+      "assignmentId": "a1",
+      "studentId": "u5",
+      "content": "Mã nguồn nộp đồ án Flask REST API có kiểm tra xác thực JWT HS256 và middleware chặn deny-by-default.",
+      "score": 9.0,
+      "feedback": "Rất tốt! Xử lý ngoại lệ đầy đủ và kiểm tra bảo mật đúng tiêu chuẩn."
+    },
+    {
+      "id": "sub3",
+      "assignmentId": "a2",
+      "studentId": "u6",
+      "content": "Báo cáo thiết kế ERD chuẩn 3NF và kịch bản truy vấn phân tích chỉ mục B-tree trên bảng lớn.",
+      "score": 9.5,
+      "feedback": "Bài làm chỉn chu, có biểu đồ EXPLAIN ANALYZE so sánh chi phí trước và sau khi đánh chỉ mục."
+    }
   ]
 }

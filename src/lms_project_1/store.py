@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,7 +14,16 @@ import bcrypt
 from sqlalchemy import select
 from sqlalchemy.orm import Session, scoped_session
 
-from lms_project_1.models import Course, Enrollment, PasswordResetToken, User
+from lms_project_1.errors import ConflictError, ValidationError
+from lms_project_1.models import (
+    Assignment,
+    Course,
+    Enrollment,
+    IdempotencyRecord,
+    PasswordResetToken,
+    Submission,
+    User,
+)
 
 
 class Store:
@@ -36,6 +47,11 @@ class Store:
         self.assignments: dict[str, dict[str, Any]] = {}
         # Submissions: (assignment_id, student_id) -> dict
         self.submissions: dict[tuple[str, str], dict[str, Any]] = {}
+        # Submissions log / all submissions (for duplicate detection in vulnerable vs patched)
+        self.all_submissions: list[dict[str, Any]] = []
+        # Idempotency cache: key -> record dict
+        self.idempotency_cache: dict[str, dict[str, Any]] = {}
+        self.idempotency_lock: threading.Lock = threading.Lock()
 
         if seed_data is not None:
             self._load_data(seed_data)
@@ -146,6 +162,36 @@ class Store:
                 "completedLessons": list(e.get("completedLessons", default_completed)),
             }
             self.enrollments[(course_id, student_id)] = enrollment_record
+
+        raw_assignments = data.get("assignments", [])
+        for a in raw_assignments:
+            aid = str(a["id"])
+            assignment_record: dict[str, Any] = {
+                "id": aid,
+                "courseId": str(a.get("courseId", "")),
+                "title": str(a.get("title", "")),
+                "description": str(a.get("description", "")),
+                "maxScore": float(a.get("maxScore", 10.0)),
+                "createdAt": datetime.now(UTC).isoformat(),
+            }
+            self.assignments[aid] = assignment_record
+
+        raw_submissions = data.get("submissions", [])
+        for s in raw_submissions:
+            sub_id = str(s["id"])
+            aid = str(s.get("assignmentId", ""))
+            sid = str(s.get("studentId", ""))
+            sub_record: dict[str, Any] = {
+                "id": sub_id,
+                "assignmentId": aid,
+                "studentId": sid,
+                "content": str(s.get("content", "")),
+                "score": float(s["score"]) if s.get("score") is not None else None,
+                "feedback": str(s.get("feedback", "")),
+                "submittedAt": str(s.get("submittedAt", datetime.now(UTC).isoformat())),
+            }
+            self.submissions[(aid, sid)] = sub_record
+            self.all_submissions.append(sub_record)
 
     def get_user_by_id(self, user_id: str) -> dict[str, Any] | None:
         """Find user by ID from DB (if active) or in-memory cache."""
@@ -598,7 +644,254 @@ class Store:
             "submittedAt": datetime.now(UTC).isoformat(),
         }
         self.submissions[(aid, sid)] = rec
+        self.all_submissions.append(rec)
         return dict(rec)
+
+    def _resolve_default_assignment_id(self, course_id: str) -> str:
+        """Find first assignment for course or generate a default one."""
+        existing = self.get_assignments(course_id)
+        if existing:
+            return str(existing[0]["id"])
+        if self.db_session is not None:
+            try:
+                db_a = (
+                    self.db_session.execute(
+                        select(Assignment).where(Assignment.course_id == str(course_id))
+                    )
+                    .scalars()
+                    .first()
+                )
+                if db_a:
+                    return str(db_a.id)
+            except Exception:
+                pass
+        created = self.create_assignment(
+            course_id=course_id,
+            title=f"Bài tập môn {course_id.upper()}",
+            description="Bài nộp định kỳ qua hệ thống miniLMS",
+            max_score=10.0,
+        )
+        return str(created["id"])
+
+    def submit_assignment_vulnerable(
+        self,
+        course_id: str,
+        student_id: str,
+        content: str,
+        assignment_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Vulnerable assignment submission simulating delay (time.sleep(1)).
+
+        Race conditions or double-clicks will create multiple duplicate submission records.
+        """
+        aid = (
+            str(assignment_id)
+            if assignment_id
+            else self._resolve_default_assignment_id(str(course_id))
+        )
+
+        # Giả lập delay 1s theo đặc tả 02_idempotency_key_pattern.md
+        time.sleep(1.0)
+
+        sub_id = str(uuid.uuid4())
+        rec = {
+            "id": sub_id,
+            "assignmentId": aid,
+            "courseId": str(course_id),
+            "studentId": str(student_id),
+            "content": str(content),
+            "score": None,
+            "feedback": "",
+            "submittedAt": datetime.now(UTC).isoformat(),
+        }
+        self.all_submissions.append(rec)
+        self.submissions[(aid, str(student_id))] = rec
+
+        if self.db_session is not None:
+            try:
+                db_sub = Submission(
+                    id=sub_id,
+                    assignment_id=aid,
+                    student_id=str(student_id),
+                    content=str(content),
+                )
+                self.db_session.add(db_sub)
+                self.db_session.commit()
+            except Exception:
+                self.db_session.rollback()
+
+        return dict(rec)
+
+    def submit_assignment_secure(
+        self,
+        course_id: str,
+        student_id: str,
+        content: str,
+        idempotency_key: str,
+        assignment_id: str | None = None,
+    ) -> tuple[dict[str, Any], int]:
+        """Patched assignment submission protected by Idempotency Key pattern.
+
+        Logic:
+        1. Check key in idempotency_cache (thread-safe).
+        2. If key is PROCESSING -> raise ConflictError (409 Conflict).
+        3. If key is COMPLETED -> return cached response (200 OK) without duplicate.
+        4. If key is new -> mark PROCESSING, execute, mark COMPLETED -> return 201.
+        """
+        key = str(idempotency_key).strip()
+        if not key:
+            raise ValidationError("Idempotency-Key header is required")
+
+        with self.idempotency_lock:
+            # Check in-memory cache
+            cached = self.idempotency_cache.get(key)
+            if cached is not None:
+                status = cached.get("status")
+                if status == "PROCESSING":
+                    raise ConflictError("Request is currently being processed")
+                if status == "COMPLETED":
+                    return cached.get("response", {}), 200
+
+            # Check PostgreSQL idempotency_records table if active
+            if self.db_session is not None:
+                try:
+                    db_rec = self.db_session.execute(
+                        select(IdempotencyRecord).where(IdempotencyRecord.key == key)
+                    ).scalar_one_or_none()
+                    if db_rec is not None:
+                        if db_rec.status == "PROCESSING":
+                            raise ConflictError("Request is currently being processed")
+                        if db_rec.status == "COMPLETED":
+                            resp_data = (
+                                json.loads(db_rec.response_body) if db_rec.response_body else {}
+                            )
+                            self.idempotency_cache[key] = {
+                                "status": "COMPLETED",
+                                "response": resp_data,
+                                "statusCode": 200,
+                            }
+                            return resp_data, 200
+                except ConflictError:
+                    raise
+                except Exception:
+                    pass
+
+            # Mark key as PROCESSING
+            self.idempotency_cache[key] = {
+                "status": "PROCESSING",
+                "userId": str(student_id),
+                "courseId": str(course_id),
+                "createdAt": datetime.now(UTC).isoformat(),
+            }
+            if self.db_session is not None:
+                try:
+                    db_rec = IdempotencyRecord(
+                        key=key,
+                        user_id=str(student_id),
+                        endpoint="/assignments/submit-secure",
+                        status="PROCESSING",
+                    )
+                    self.db_session.add(db_rec)
+                    self.db_session.commit()
+                except Exception:
+                    self.db_session.rollback()
+
+        # Execute business logic
+        try:
+            aid = (
+                str(assignment_id)
+                if assignment_id
+                else self._resolve_default_assignment_id(str(course_id))
+            )
+            sub_id = str(uuid.uuid4())
+            rec = {
+                "id": sub_id,
+                "assignmentId": aid,
+                "courseId": str(course_id),
+                "studentId": str(student_id),
+                "content": str(content),
+                "score": None,
+                "feedback": "",
+                "submittedAt": datetime.now(UTC).isoformat(),
+            }
+            self.all_submissions.append(rec)
+            self.submissions[(aid, str(student_id))] = rec
+
+            if self.db_session is not None:
+                try:
+                    db_sub = Submission(
+                        id=sub_id,
+                        assignment_id=aid,
+                        student_id=str(student_id),
+                        content=str(content),
+                    )
+                    self.db_session.add(db_sub)
+                    self.db_session.commit()
+                except Exception:
+                    self.db_session.rollback()
+
+            resp_payload = {
+                "message": "Nộp bài thành công",
+                "submission": rec,
+                "idempotencyKey": key,
+            }
+
+            with self.idempotency_lock:
+                self.idempotency_cache[key] = {
+                    "status": "COMPLETED",
+                    "userId": str(student_id),
+                    "response": resp_payload,
+                    "statusCode": 201,
+                    "completedAt": datetime.now(UTC).isoformat(),
+                }
+                if self.db_session is not None:
+                    try:
+                        db_rec = self.db_session.execute(
+                            select(IdempotencyRecord).where(IdempotencyRecord.key == key)
+                        ).scalar_one_or_none()
+                        if db_rec:
+                            db_rec.status = "COMPLETED"
+                            db_rec.response_code = 201
+                            db_rec.response_body = json.dumps(resp_payload)
+                            db_rec.completed_at = datetime.now(UTC)
+                            self.db_session.commit()
+                    except Exception:
+                        self.db_session.rollback()
+
+            return resp_payload, 201
+
+        except Exception as exc:
+            with self.idempotency_lock:
+                self.idempotency_cache.pop(key, None)
+                if self.db_session is not None:
+                    try:
+                        db_rec = self.db_session.execute(
+                            select(IdempotencyRecord).where(IdempotencyRecord.key == key)
+                        ).scalar_one_or_none()
+                        if db_rec:
+                            self.db_session.delete(db_rec)
+                            self.db_session.commit()
+                    except Exception:
+                        self.db_session.rollback()
+            raise exc
+
+    def get_all_submissions(
+        self,
+        student_id: str | None = None,
+        course_id: str | None = None,
+        assignment_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return all submissions recorded, allowing inspection of duplicates."""
+        results = []
+        for s in self.all_submissions:
+            if student_id and s.get("studentId") != str(student_id):
+                continue
+            if course_id and s.get("courseId") != str(course_id):
+                continue
+            if assignment_id and s.get("assignmentId") != str(assignment_id):
+                continue
+            results.append(dict(s))
+        return results
 
     def get_submissions(self, assignment_id: str) -> list[dict[str, Any]]:
         """Return all submissions for an assignment."""

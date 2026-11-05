@@ -366,6 +366,90 @@ def submit_course_assignment(
     return cast(dict[str, Any], s.submit_assignment(assignment_id, actor_id, content))
 
 
+def submit_assignment_vulnerable(
+    actor: dict[str, Any],
+    course_id: str,
+    content: str,
+    assignment_id: str | None = None,
+    store: Any = None,
+) -> dict[str, Any]:
+    """Layer 4: Vulnerable submission service without Idempotency Key.
+
+    Verifies actor is an enrolled student, then invokes vulnerable store submission.
+    """
+    s = _resolve_store(store)
+    course = s.get_course_by_id(course_id)
+    if course is None:
+        raise NotFound(f"Course '{course_id}' not found")
+
+    role = str(actor.get("role", "")).upper()
+    if role != "STUDENT":
+        raise Forbidden("Only enrolled students can submit assignments")
+
+    actor_id = str(actor.get("id", ""))
+    enr = s.get_enrollment(course_id, actor_id)
+    if enr is None:
+        raise Forbidden(f"Student is not enrolled in course '{course_id}'")
+
+    if assignment_id:
+        assignment = s.get_assignment_by_id(assignment_id)
+        if assignment is None or assignment.get("courseId") != course_id:
+            raise NotFound(f"Assignment '{assignment_id}' not found in course '{course_id}'")
+
+    return cast(
+        dict[str, Any],
+        s.submit_assignment_vulnerable(
+            course_id=course_id,
+            student_id=actor_id,
+            content=content,
+            assignment_id=assignment_id,
+        ),
+    )
+
+
+def submit_assignment_secure(
+    actor: dict[str, Any],
+    course_id: str,
+    content: str,
+    idempotency_key: str,
+    assignment_id: str | None = None,
+    store: Any = None,
+) -> tuple[dict[str, Any], int]:
+    """Layer 4: Patched submission service protected with Idempotency Key.
+
+    Verifies actor is an enrolled student, then invokes idempotent store submission.
+    """
+    s = _resolve_store(store)
+    course = s.get_course_by_id(course_id)
+    if course is None:
+        raise NotFound(f"Course '{course_id}' not found")
+
+    role = str(actor.get("role", "")).upper()
+    if role != "STUDENT":
+        raise Forbidden("Only enrolled students can submit assignments")
+
+    actor_id = str(actor.get("id", ""))
+    enr = s.get_enrollment(course_id, actor_id)
+    if enr is None:
+        raise Forbidden(f"Student is not enrolled in course '{course_id}'")
+
+    if assignment_id:
+        assignment = s.get_assignment_by_id(assignment_id)
+        if assignment is None or assignment.get("courseId") != course_id:
+            raise NotFound(f"Assignment '{assignment_id}' not found in course '{course_id}'")
+
+    return cast(
+        tuple[dict[str, Any], int],
+        s.submit_assignment_secure(
+            course_id=course_id,
+            student_id=actor_id,
+            content=content,
+            idempotency_key=idempotency_key,
+            assignment_id=assignment_id,
+        ),
+    )
+
+
 def get_assignment_submissions(
     actor: dict[str, Any],
     course_id: str,

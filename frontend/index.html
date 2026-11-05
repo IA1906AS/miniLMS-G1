@@ -699,14 +699,19 @@
               <span class="text-xs font-extrabold text-amber-600 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1 rounded-xl" x-text="'Tối đa ' + (a.maxScore || 10) + 'đ'"></span>
             </div>
 
-            <!-- Form nộp bài -->
+            <!-- Form nộp bài & Idempotency Demo -->
             <div class="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
               <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300">Nội dung bài làm (Link Github / Báo cáo):</label>
               <textarea rows="2" x-model="submissionContent[a.id]" placeholder="Dán link bài làm hoặc nhập nội dung giải bài tập tại đây..."
                         class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-white focus:ring-2 focus:ring-brand-500"></textarea>
-              <button @click="submitAssignmentSolution(a.id)" class="w-full py-2 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl transition shadow-sm">
-                Nộp Bài Làm Cho Giảng Viên &rarr;
-              </button>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <button @click="submitAssignmentSolutionSecure(a.id)" class="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition shadow-sm flex items-center justify-center gap-1.5" title="Gửi kèm header Idempotency-Key chống trùng lặp">
+                  <span>🛡️ Nộp An Toàn (Idempotency Key)</span>
+                </button>
+                <button @click="submitAssignmentSolutionVulnerableDouble(a.id)" class="py-2 px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition shadow-sm flex items-center justify-center gap-1.5" title="Gửi 2 request đồng thời để kiểm thử lỗi trùng lặp khi không có Idempotency Key">
+                  <span>⚠️ Test Lỗi (Double Submit)</span>
+                </button>
+              </div>
             </div>
           </div>
         </template>
@@ -1765,6 +1770,59 @@
             this.submissionContent[assignmentId] = '';
           } else {
             this.notify('Không thể nộp bài: ' + this.formatErrorMessage(res.data.error), 'error');
+          }
+        },
+
+        async submitAssignmentSolutionSecure(assignmentId) {
+          const content = this.submissionContent[assignmentId];
+          if (!content || !content.trim()) {
+            this.notify('Vui lòng nhập nội dung bài làm trước khi nộp.', 'warning');
+            return;
+          }
+          // Sinh UUID client-side cho Idempotency Key
+          const idempotencyKey = (crypto && crypto.randomUUID) ? crypto.randomUUID() : ('key-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9));
+          const res = await this.api('/assignments/submit-secure', {
+            method: 'POST',
+            headers: { 'Idempotency-Key': idempotencyKey },
+            body: JSON.stringify({
+              course_id: this.selectedCourseId,
+              assignment_id: assignmentId,
+              content: content
+            })
+          });
+          if (res.ok) {
+            this.notify(`[Idempotent 201/200] Nộp an toàn thành công! Key: ${idempotencyKey.substring(0, 8)}...`, 'success');
+            this.submissionContent[assignmentId] = '';
+          } else if (res.status === 409) {
+            this.notify('[409 Conflict] Yêu cầu đang được xử lý song song, hệ thống chặn duplicate thành công!', 'warning');
+          } else {
+            this.notify('Lỗi nộp bài: ' + (res.data.error || 'UNEXPECTED'), 'error');
+          }
+        },
+
+        async submitAssignmentSolutionVulnerableDouble(assignmentId) {
+          const content = this.submissionContent[assignmentId];
+          if (!content || !content.trim()) {
+            this.notify('Vui lòng nhập nội dung bài làm trước khi test.', 'warning');
+            return;
+          }
+          this.notify('Đang kích hoạt gửi đồng thời 2 request (Race Condition demo)...', 'info');
+          const payload = JSON.stringify({
+            course_id: this.selectedCourseId,
+            assignment_id: assignmentId,
+            content: content
+          });
+
+          // Gửi 2 request song song đến endpoint lỗi không có Idempotency Key
+          const [res1, res2] = await Promise.all([
+            this.api('/assignments/submit-vulnerable', { method: 'POST', body: payload }),
+            this.api('/assignments/submit-vulnerable', { method: 'POST', body: payload })
+          ]);
+
+          if (res1.ok && res2.ok) {
+            this.notify(`[Phát hiện lỗi Race Condition] 2 bản nộp trùng lặp đã được tạo! Sub1 ID: ${res1.data.submission.id.substring(0, 8)}..., Sub2 ID: ${res2.data.submission.id.substring(0, 8)}...`, 'warning');
+          } else {
+            this.notify(`Kết quả test: Req1=${res1.status}, Req2=${res2.status}`, 'info');
           }
         },
 

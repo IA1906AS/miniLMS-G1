@@ -364,6 +364,32 @@ def validate_submit_assignment_payload(data: Any) -> str:
     return content_str
 
 
+def validate_submission_request_payload(data: Any) -> dict[str, Any]:
+    """Validate assignment submission request: {course_id, content, assignment_id?}."""
+    if not isinstance(data, dict):
+        raise ValidationError("Request body must be a JSON object")
+
+    course_id = data.get("course_id") or data.get("courseId")
+    if not course_id or not isinstance(course_id, str) or not course_id.strip():
+        raise ValidationError("'course_id' is required and must be a non-empty string")
+
+    content = data.get("content")
+    if not isinstance(content, str) or not content.strip():
+        raise ValidationError("'content' must be a non-empty string")
+    content_str = content.strip()
+    if len(content_str) > 5000:
+        raise ValidationError("'content' cannot exceed 5000 characters")
+
+    assignment_id = data.get("assignment_id") or data.get("assignmentId")
+    aid = str(assignment_id).strip() if assignment_id else None
+
+    return {
+        "course_id": str(course_id).strip(),
+        "content": content_str,
+        "assignment_id": aid,
+    }
+
+
 def validate_grade_submission_payload(data: Any, max_score: float = 10.0) -> tuple[float, str]:
     """Validate assignment grading payload: {score, feedback?}."""
     if not isinstance(data, dict):
