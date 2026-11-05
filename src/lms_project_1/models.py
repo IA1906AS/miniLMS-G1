@@ -252,3 +252,39 @@ class IdempotencyRecord(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+
+class QuizAttempt(Base):
+    """Quiz attempt table for Pattern #7: State Machine Lifecycle."""
+
+    __tablename__ = "quiz_attempts"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    quiz_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    student_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    state: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="CREATED",
+    )  # CREATED, IN_PROGRESS, SUBMITTED, EXPIRED
+    answers: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+    )
+    submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )

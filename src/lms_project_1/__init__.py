@@ -77,9 +77,11 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     # 7b. Register Defensive Pattern Blueprints (#5 - #10)
     from lms_project_1.patterns.p5_circuit_breaker import p5_circuit_breaker_bp
     from lms_project_1.patterns.p6_timeout import p6_dashboard_bp
+    from lms_project_1.patterns.p7_state_machine import p7_quiz_bp
 
     app.register_blueprint(p6_dashboard_bp)
     app.register_blueprint(p5_circuit_breaker_bp)
+    app.register_blueprint(p7_quiz_bp)
 
     # 8. Register Protected Endpoints
     @app.route("/me", methods=["GET"])
