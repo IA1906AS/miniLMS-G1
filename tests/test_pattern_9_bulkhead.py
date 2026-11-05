@@ -187,3 +187,4 @@ def test_b9_06_response_sanitization_no_secrets_leaked(client: FlaskClient) -> N
     assert "password_hash" not in raw_text
     assert "secret" not in raw_text.lower()
     assert "token" not in raw_text.lower()
+

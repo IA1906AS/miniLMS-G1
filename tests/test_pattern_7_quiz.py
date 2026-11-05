@@ -243,3 +243,4 @@ def test_s7_07_validation_error_on_invalid_answers_payload(client: FlaskClient) 
     )
     assert invalid_resp.status_code == 400
     assert invalid_resp.get_json()["error"] == "VALIDATION_ERROR"
+

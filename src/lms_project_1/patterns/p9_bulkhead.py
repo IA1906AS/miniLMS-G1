@@ -228,3 +228,4 @@ def get_export_bulkhead_status(course_id: str) -> tuple[Response, int]:
     """Inspect current capacity metrics of the export bulkhead limiter."""
     bulkhead: BulkheadLimiter = current_app.config.get("EXPORT_BULKHEAD", _GLOBAL_EXPORT_BULKHEAD)
     return jsonify(bulkhead.get_metrics()), 200
+

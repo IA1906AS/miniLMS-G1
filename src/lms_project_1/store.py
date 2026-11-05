@@ -61,6 +61,13 @@ class Store:
         # Pattern #8 Transactional Outbox events
         self.outbox_events: list[dict[str, Any]] = []
         self.outbox_lock: threading.Lock = threading.Lock()
+        # Pattern #10 Limited-capacity Seat Reservations
+        self.classes: dict[str, dict[str, Any]] = {
+            "lab_ai_101": {"id": "lab_ai_101", "name": "Lab AI Nâng Cao", "capacity": 2},
+            "seminar_sec": {"id": "seminar_sec", "name": "Hội Thảo Bảo Mật Web", "capacity": 3},
+        }
+        self.seat_reservations: dict[str, dict[str, Any]] = {}
+        self.reservation_lock: threading.Lock = threading.Lock()
 
         if seed_data is not None:
             self._load_data(seed_data)

@@ -80,12 +80,14 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     from lms_project_1.patterns.p7_state_machine import p7_quiz_bp
     from lms_project_1.patterns.p8_outbox import p8_outbox_bp
     from lms_project_1.patterns.p9_bulkhead import p9_bulkhead_bp
+    from lms_project_1.patterns.p10_reservation import p10_reservation_bp
 
     app.register_blueprint(p6_dashboard_bp)
     app.register_blueprint(p5_circuit_breaker_bp)
     app.register_blueprint(p7_quiz_bp)
     app.register_blueprint(p8_outbox_bp)
     app.register_blueprint(p9_bulkhead_bp)
+    app.register_blueprint(p10_reservation_bp)
 
     # 8. Register Protected Endpoints
     @app.route("/me", methods=["GET"])
