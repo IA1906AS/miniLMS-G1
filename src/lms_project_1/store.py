@@ -52,6 +52,9 @@ class Store:
         # Idempotency cache: key -> record dict
         self.idempotency_cache: dict[str, dict[str, Any]] = {}
         self.idempotency_lock: threading.Lock = threading.Lock()
+        # Pattern #6 Dashboard statistics cache: course_id -> {data: dict, cached_at: datetime}
+        self.dashboard_cache: dict[str, dict[str, Any]] = {}
+        self.dashboard_lock: threading.Lock = threading.Lock()
 
         if seed_data is not None:
             self._load_data(seed_data)

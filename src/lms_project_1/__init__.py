@@ -74,6 +74,10 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     # 7. Register Auth Blueprint (Layer 1, 7: /auth/login, /auth/register, etc.)
     app.register_blueprint(auth_bp)
 
+    # 7b. Register Defensive Pattern Blueprints (#5 - #10)
+    from lms_project_1.patterns.p6_timeout import p6_dashboard_bp
+    app.register_blueprint(p6_dashboard_bp)
+
     # 8. Register Protected Endpoints
     @app.route("/me", methods=["GET"])
     def get_me() -> tuple[Response, int]:
