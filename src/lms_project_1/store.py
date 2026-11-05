@@ -896,6 +896,17 @@ class Store:
             results.append(dict(s))
         return results
 
+    def get_submission_by_id(self, submission_id: str) -> dict[str, Any] | None:
+        """Find submission by id across all recorded submissions."""
+        sid = str(submission_id)
+        for s in self.all_submissions:
+            if s.get("id") == sid:
+                return dict(s)
+        for s in self.submissions.values():
+            if s.get("id") == sid:
+                return dict(s)
+        return None
+
     def get_submissions(self, assignment_id: str) -> list[dict[str, Any]]:
         """Return all submissions for an assignment."""
         aid = str(assignment_id)
