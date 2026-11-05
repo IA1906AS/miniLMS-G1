@@ -288,3 +288,38 @@ class QuizAttempt(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+
+
+class OutboxEvent(Base):
+    """Outbox event table for Pattern #8: Transactional Outbox."""
+
+    __tablename__ = "outbox_events"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    deduplication_key: Mapped[str] = mapped_column(
+        String(150),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="PENDING",
+    )  # PENDING, PROCESSED, FAILED
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )

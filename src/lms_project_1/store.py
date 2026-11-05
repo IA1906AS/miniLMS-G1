@@ -58,6 +58,9 @@ class Store:
         # Pattern #7 Quiz attempts: attempt_id -> dict
         self.quiz_attempts: dict[str, dict[str, Any]] = {}
         self.quiz_attempts_lock: threading.Lock = threading.Lock()
+        # Pattern #8 Transactional Outbox events
+        self.outbox_events: list[dict[str, Any]] = []
+        self.outbox_lock: threading.Lock = threading.Lock()
 
         if seed_data is not None:
             self._load_data(seed_data)
