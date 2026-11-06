@@ -56,6 +56,7 @@ class Store:
         self.dashboard_cache: dict[str, dict[str, Any]] = {}
         self.dashboard_lock: threading.Lock = threading.Lock()
         # Pattern #7 Quiz attempts: attempt_id -> dict
+        self.quizzes: dict[str, dict[str, Any]] = {}
         self.quiz_attempts: dict[str, dict[str, Any]] = {}
         self.quiz_attempts_lock: threading.Lock = threading.Lock()
         # Pattern #8 Transactional Outbox events
@@ -67,7 +68,7 @@ class Store:
             "seminar_sec": {"id": "seminar_sec", "name": "Hội Thảo Bảo Mật Web", "capacity": 3},
         }
         self.seat_reservations: dict[str, dict[str, Any]] = {}
-        self.reservation_lock: threading.Lock = threading.Lock()
+        self.reservation_lock: threading.RLock = threading.RLock()
 
         if seed_data is not None:
             self._load_data(seed_data)
@@ -208,6 +209,78 @@ class Store:
             }
             self.submissions[(aid, sid)] = sub_record
             self.all_submissions.append(sub_record)
+
+        raw_classes = data.get("classes", [])
+        for cl in raw_classes:
+            cid = str(cl["id"])
+            self.classes[cid] = {
+                "id": cid,
+                "courseId": str(cl.get("courseId", "")),
+                "name": str(cl.get("name", "")),
+                "capacity": int(cl.get("capacity", 30)),
+                "room": str(cl.get("room", "")),
+                "schedule": str(cl.get("schedule", "")),
+            }
+
+        raw_quizzes = data.get("quizzes", [])
+        for q in raw_quizzes:
+            qid = str(q["id"])
+            self.quizzes[qid] = {
+                "id": qid,
+                "courseId": str(q.get("courseId", "")),
+                "title": str(q.get("title", "")),
+                "timeLimitSeconds": int(q.get("timeLimitSeconds", 1800)),
+                "questions": q.get("questions", []),
+            }
+
+    def get_class(self, class_id: str) -> dict[str, Any] | None:
+        """Find a course class by ID."""
+        return self.classes.get(class_id)
+
+    def get_classes(self, course_id: str | None = None) -> list[dict[str, Any]]:
+        """List course classes optionally filtered by course ID."""
+        if course_id:
+            return [
+                c
+                for c in self.classes.values()
+                if c.get("course_id") == course_id or c.get("courseId") == course_id
+            ]
+        return list(self.classes.values())
+
+    def get_reservations_for_class(self, class_id: str) -> list[dict[str, Any]]:
+        """Get all reservations for a given class."""
+        return [r for r in self.seat_reservations.values() if r.get("class_id") == class_id]
+
+    def get_user_reservation_for_class(self, class_id: str, user_id: str) -> dict[str, Any] | None:
+        """Find active/held reservation for a given user in a class."""
+        for r in self.seat_reservations.values():
+            if r.get("class_id") == class_id and r.get("user_id") == user_id:
+                return r
+        return None
+
+    def get_reservation(self, reservation_id: str) -> dict[str, Any] | None:
+        """Find a reservation by ID."""
+        return self.seat_reservations.get(reservation_id)
+
+    def save_reservation(self, record: dict[str, Any]) -> None:
+        """Persist or update a seat reservation."""
+        rid = record.get("id")
+        if rid:
+            self.seat_reservations[rid] = record
+
+    def get_quizzes(self, course_id: str | None = None) -> list[dict[str, Any]]:
+        """List quizzes optionally filtered by course ID."""
+        if course_id:
+            return [
+                q
+                for q in self.quizzes.values()
+                if q.get("course_id") == course_id or q.get("courseId") == course_id
+            ]
+        return list(self.quizzes.values())
+
+    def get_quiz(self, quiz_id: str) -> dict[str, Any] | None:
+        """Find a quiz by ID."""
+        return self.quizzes.get(quiz_id)
 
     def get_user_by_id(self, user_id: str) -> dict[str, Any] | None:
         """Find user by ID from DB (if active) or in-memory cache."""

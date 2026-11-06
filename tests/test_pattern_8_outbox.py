@@ -8,7 +8,7 @@ import pytest
 from flask.testing import FlaskClient
 
 from lms_project_1 import create_app
-from lms_project_1.patterns.p8_outbox import FakeEmailSender, OutboxWorker
+from lms_project_1.outbox import FakeEmailSender, OutboxWorker
 
 
 @pytest.fixture

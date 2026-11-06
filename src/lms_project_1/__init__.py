@@ -74,20 +74,20 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     # 7. Register Auth Blueprint (Layer 1, 7: /auth/login, /auth/register, etc.)
     app.register_blueprint(auth_bp)
 
-    # 7b. Register Defensive Pattern Blueprints (#5 - #10)
-    from lms_project_1.patterns.p5_circuit_breaker import p5_circuit_breaker_bp
-    from lms_project_1.patterns.p6_timeout import p6_dashboard_bp
-    from lms_project_1.patterns.p7_state_machine import p7_quiz_bp
-    from lms_project_1.patterns.p8_outbox import p8_outbox_bp
-    from lms_project_1.patterns.p9_bulkhead import p9_bulkhead_bp
-    from lms_project_1.patterns.p10_reservation import p10_reservation_bp
+    # 7b. Register Domain Feature Blueprints
+    from lms_project_1.dashboard import dashboard_bp
+    from lms_project_1.outbox import outbox_bp
+    from lms_project_1.plagiarism import plagiarism_bp
+    from lms_project_1.quizzes import quizzes_bp
+    from lms_project_1.reports import reports_bp
+    from lms_project_1.reservations import reservations_bp
 
-    app.register_blueprint(p6_dashboard_bp)
-    app.register_blueprint(p5_circuit_breaker_bp)
-    app.register_blueprint(p7_quiz_bp)
-    app.register_blueprint(p8_outbox_bp)
-    app.register_blueprint(p9_bulkhead_bp)
-    app.register_blueprint(p10_reservation_bp)
+    app.register_blueprint(dashboard_bp)
+    app.register_blueprint(plagiarism_bp)
+    app.register_blueprint(quizzes_bp)
+    app.register_blueprint(outbox_bp)
+    app.register_blueprint(reports_bp)
+    app.register_blueprint(reservations_bp)
 
     # 8. Register Protected Endpoints
     @app.route("/me", methods=["GET"])
@@ -303,6 +303,22 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
             raise ValidationError("Malformed JSON") from exc
 
         content = schemas.validate_submit_assignment_payload(body)
+        idempotency_key = request.headers.get("Idempotency-Key") or request.headers.get(
+            "X-Idempotency-Key"
+        )
+        if idempotency_key:
+            sub, code = services.submit_assignment_secure(
+                actor=actor,
+                course_id=course_id,
+                content=content,
+                assignment_id=assignment_id,
+                idempotency_key=idempotency_key,
+                store=store,
+            )
+            is_replayed = code == 200
+            msg = "Nộp bài thành công (Replayed)" if is_replayed else "Nộp bài thành công"
+            return jsonify({"message": msg, "submission": sub, "is_replayed": is_replayed}), code
+
         sub = services.submit_course_assignment(
             actor, course_id, assignment_id, content, store=store
         )

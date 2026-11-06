@@ -1,11 +1,8 @@
-"""Defensive Pattern #7: State Machine for Quiz Attempt Lifecycle.
+"""Quiz Management & State Machine Lifecycle Module.
 
-This module implements:
-1. AttemptState: Finite state machine with valid transitions
-   (CREATED -> IN_PROGRESS -> SUBMITTED / EXPIRED).
-2. QuizStateMachineService: Enforces transition rules, atomic state updates,
-   ownership checks, and strict deadline enforcement.
-3. p7_quiz_bp: Blueprint exposing full quiz attempt lifecycle endpoints.
+Implements rigorous state-machine rules for student quiz attempts
+(CREATED -> IN_PROGRESS -> SUBMITTED or EXPIRED), ensuring non-revisable
+terminal submissions, strict expiration, and protection against answer tampering.
 """
 
 from __future__ import annotations
@@ -37,7 +34,6 @@ class AttemptState(enum.StrEnum):
     EXPIRED = "EXPIRED"
 
 
-# Permitted transition table
 VALID_TRANSITIONS: dict[AttemptState, set[AttemptState]] = {
     AttemptState.CREATED: {
         AttemptState.IN_PROGRESS,
@@ -45,12 +41,12 @@ VALID_TRANSITIONS: dict[AttemptState, set[AttemptState]] = {
         AttemptState.EXPIRED,
     },
     AttemptState.IN_PROGRESS: {
-        AttemptState.IN_PROGRESS,  # idempotently updating answers
+        AttemptState.IN_PROGRESS,
         AttemptState.SUBMITTED,
         AttemptState.EXPIRED,
     },
-    AttemptState.SUBMITTED: set(),  # Terminal state
-    AttemptState.EXPIRED: set(),  # Terminal state
+    AttemptState.SUBMITTED: set(),
+    AttemptState.EXPIRED: set(),
 }
 
 
@@ -85,14 +81,12 @@ class QuizStateMachineService:
         expires_at = now + timedelta(seconds=duration)
 
         with store.quiz_attempts_lock:
-            # Check for existing active attempt to prevent uncontrolled multi-attempt racing
             for existing in store.quiz_attempts.values():
                 if (
                     existing.get("quiz_id") == quiz_id
                     and existing.get("student_id") == student_id
                     and existing.get("state") in (AttemptState.CREATED, AttemptState.IN_PROGRESS)
                 ):
-                    # Check if actually expired
                     if now < existing.get("expires_at", now):
                         return existing
                     else:
@@ -147,7 +141,6 @@ class QuizStateMachineService:
             if current_state == AttemptState.EXPIRED:
                 raise ConflictError("Bài kiểm tra đã hết hạn thời gian làm bài (EXPIRED)")
 
-            # Transition CREATED -> IN_PROGRESS on first answer submission
             if current_state == AttemptState.CREATED:
                 attempt["state"] = AttemptState.IN_PROGRESS
 
@@ -176,12 +169,10 @@ class QuizStateMachineService:
             if current_state == AttemptState.EXPIRED:
                 raise ConflictError("Bài kiểm tra đã hết hạn (EXPIRED), không thể nộp bài")
 
-            # Permitted transition to terminal SUBMITTED
             attempt["state"] = AttemptState.SUBMITTED
             now = datetime.now(UTC)
             attempt["submitted_at"] = now.isoformat()
 
-            # Deterministic scoring based on answers count
             answers = attempt.get("answers", {})
             total_questions = max(len(answers), 5)
             correct_count = sum(1 for v in answers.values() if v in ("A", "true", 1, "correct"))
@@ -235,10 +226,11 @@ class QuizStateMachineService:
 
 
 # Blueprint registration
-p7_quiz_bp = Blueprint("p7_quiz", __name__)
+quizzes_bp = Blueprint("quizzes", __name__)
+p7_quiz_bp = quizzes_bp  # Backward compatibility alias
 
 
-@p7_quiz_bp.route("/quizzes/<quiz_id>/attempts", methods=["POST"])
+@quizzes_bp.route("/quizzes/<quiz_id>/attempts", methods=["POST"])
 @require_role("STUDENT", "student")
 def post_start_quiz_attempt(quiz_id: str) -> tuple[Response, int]:
     """Start or retrieve an active quiz attempt for the student."""
@@ -259,11 +251,13 @@ def post_start_quiz_attempt(quiz_id: str) -> tuple[Response, int]:
     return jsonify(attempt), 201
 
 
-@p7_quiz_bp.route("/quizzes/<quiz_id>/attempts/<attempt_id>", methods=["GET"])
+@quizzes_bp.route("/quizzes/<quiz_id>/attempts/<attempt_id>", methods=["GET"])
 @require_role("ADMIN", "INSTRUCTOR", "STUDENT", "admin", "instructor", "student", "teacher")
 def get_quiz_attempt_details(quiz_id: str, attempt_id: str) -> tuple[Response, int]:
     """View status, answers, and score for a quiz attempt."""
     actor = getattr(g, "actor", None)
+    if not actor or not isinstance(actor, dict):
+        raise Unauthenticated("Unauthenticated")
     store: Store = current_app.config["STORE"]
 
     attempt = QuizStateMachineService.get_attempt(
@@ -275,11 +269,13 @@ def get_quiz_attempt_details(quiz_id: str, attempt_id: str) -> tuple[Response, i
     return jsonify(attempt), 200
 
 
-@p7_quiz_bp.route("/quizzes/<quiz_id>/attempts/<attempt_id>/answers", methods=["PUT"])
+@quizzes_bp.route("/quizzes/<quiz_id>/attempts/<attempt_id>/answers", methods=["PUT"])
 @require_role("STUDENT", "student")
 def put_quiz_answers(quiz_id: str, attempt_id: str) -> tuple[Response, int]:
     """Save answers while attempt is in CREATED or IN_PROGRESS state."""
     actor = getattr(g, "actor", None)
+    if not actor or not isinstance(actor, dict):
+        raise Unauthenticated("Unauthenticated")
     store: Store = current_app.config["STORE"]
 
     if not request.is_json:
@@ -299,11 +295,13 @@ def put_quiz_answers(quiz_id: str, attempt_id: str) -> tuple[Response, int]:
     return jsonify(attempt), 200
 
 
-@p7_quiz_bp.route("/quizzes/<quiz_id>/attempts/<attempt_id>/submit", methods=["POST"])
+@quizzes_bp.route("/quizzes/<quiz_id>/attempts/<attempt_id>/submit", methods=["POST"])
 @require_role("STUDENT", "student")
 def post_submit_quiz_attempt(quiz_id: str, attempt_id: str) -> tuple[Response, int]:
     """Submit the quiz attempt. Irreversible transition to SUBMITTED."""
     actor = getattr(g, "actor", None)
+    if not actor or not isinstance(actor, dict):
+        raise Unauthenticated("Unauthenticated")
     store: Store = current_app.config["STORE"]
 
     attempt = QuizStateMachineService.submit_attempt(

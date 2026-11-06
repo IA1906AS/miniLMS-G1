@@ -1,11 +1,8 @@
-"""Defensive Pattern #5: Circuit Breaker for Assignment Plagiarism Checking.
+"""Assignment Plagiarism Detection & Circuit Breaker Resilience Module.
 
-This module implements:
-1. CircuitBreaker: Self-implemented state machine (CLOSED, OPEN, HALF_OPEN)
-   with thread-safe concurrency, failure threshold, cooldown timer, and probe testing.
-2. FakePlagiarismProvider: Upstream checker adapter supporting fault/delay injection.
-3. PlagiarismService: Enforces authentication, authorization, and fast-fail protection.
-4. p5_circuit_breaker_bp: Blueprint exposing plagiarism check & circuit monitoring endpoints.
+Provides automated similarity checking for student assignment submissions
+backed by a thread-safe Circuit Breaker state machine (CLOSED, OPEN, HALF_OPEN)
+to prevent cascading failures from external provider timeouts or outages.
 """
 
 from __future__ import annotations
@@ -15,7 +12,7 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from flask import Blueprint, Response, current_app, g, jsonify, make_response, request
 
@@ -77,7 +74,6 @@ class CircuitBreaker:
     def get_status(self) -> dict[str, Any]:
         """Inspect current circuit status safely."""
         with self._lock:
-            # Check if cooldown has elapsed to show accurate anticipated state
             current_time = self._time_fn()
             effective_state = self.state
             if self.state == CircuitState.OPEN and (
@@ -111,7 +107,6 @@ class CircuitBreaker:
         with self._lock:
             now = self._time_fn()
 
-            # 1. State transition from OPEN to HALF_OPEN if cooldown expired
             if self.state == CircuitState.OPEN:
                 elapsed = now - self.last_failure_time
                 if elapsed >= self.cooldown_seconds:
@@ -124,7 +119,6 @@ class CircuitBreaker:
                         retry_after=retry_after,
                     )
 
-            # In HALF_OPEN, we only allow bounded probes
             if (
                 self.state == CircuitState.HALF_OPEN
                 and self.successful_probes >= self.half_open_probes
@@ -134,7 +128,6 @@ class CircuitBreaker:
                     retry_after=1.0,
                 )
 
-        # 2. Execute call outside lock to prevent blocking concurrent calls
         try:
             result = func(*args, **kwargs)
         except (PlagiarismProviderError, TimeoutError, ConnectionError) as exc:
@@ -149,12 +142,10 @@ class CircuitBreaker:
                     self.total_tripped_count += 1
             raise exc
 
-        # 3. Handle success
         with self._lock:
             if self.state == CircuitState.HALF_OPEN:
                 self.successful_probes += 1
                 if self.successful_probes >= self.half_open_probes:
-                    # Recovery: return to CLOSED
                     self.state = CircuitState.CLOSED
                     self.consecutive_failures = 0
                     self.successful_probes = 0
@@ -183,7 +174,6 @@ class FakePlagiarismProvider:
         if simulate_error in ("down", "500", "error"):
             raise PlagiarismProviderDown("External plagiarism detection service returned HTTP 503")
 
-        # Deterministic honest similarity score calculation
         content_len = len(content.strip())
         similarity = min(85.0, round((content_len % 37) * 2.1, 1))
 
@@ -197,7 +187,6 @@ class FakePlagiarismProvider:
         }
 
 
-# Global singleton breaker instance for plagiarism checking
 _PLAGIARISM_BREAKER = CircuitBreaker(failure_threshold=3, cooldown_seconds=5.0)
 _PLAGIARISM_PROVIDER = FakePlagiarismProvider()
 
@@ -221,22 +210,18 @@ class PlagiarismService:
         if not actor or not isinstance(actor, dict):
             raise Unauthenticated("Unauthenticated")
 
-        # 1. Course Existence Check (404)
         course = store.get_course_by_id(course_id)
         if course is None:
             raise NotFound(f"Course '{course_id}' not found")
 
-        # 2. Submission Existence Check (404)
         submission = store.get_submission_by_id(submission_id)
         if submission is None:
             raise NotFound(f"Submission '{submission_id}' not found")
 
-        # Ensure submission belongs to course
         sub_course_id = submission.get("courseId") or submission.get("course_id")
         if sub_course_id and sub_course_id != course_id:
             raise NotFound(f"Submission '{submission_id}' does not belong to course '{course_id}'")
 
-        # 3. Object-level Authorization (403)
         role = str(actor.get("role", "")).upper()
         actor_id = str(actor.get("id", ""))
 
@@ -253,25 +238,26 @@ class PlagiarismService:
         else:
             raise Forbidden("Vai trò không có quyền kiểm tra đạo văn")
 
-        # 4. Invoke through Circuit Breaker
         active_breaker = breaker or _PLAGIARISM_BREAKER
         active_provider = provider or _PLAGIARISM_PROVIDER
         content = str(submission.get("content", ""))
 
-        return active_breaker.call(
+        res = active_breaker.call(
             active_provider.check_similarity,
             submission_id=submission_id,
             content=content,
             simulate_error=simulate_error,
             delay_seconds=delay_seconds,
         )
+        return cast(dict[str, Any], res)
 
 
 # Blueprint definition
-p5_circuit_breaker_bp = Blueprint("p5_circuit_breaker", __name__)
+plagiarism_bp = Blueprint("plagiarism", __name__)
+p5_circuit_breaker_bp = plagiarism_bp  # Backward compatibility alias
 
 
-@p5_circuit_breaker_bp.route(
+@plagiarism_bp.route(
     "/courses/<course_id>/submissions/<submission_id>/plagiarism-check",
     methods=["POST"],
 )
@@ -284,7 +270,6 @@ def post_check_plagiarism(course_id: str, submission_id: str) -> tuple[Response,
 
     store: Store = current_app.config["STORE"]
 
-    # Read optional test/fault injection params
     body = request.get_json(silent=True) or {}
     simulate_error = body.get("simulate_error") or request.args.get("error")
     delay_ms = body.get("delay_ms") or request.args.get("delay_ms")
@@ -310,7 +295,6 @@ def post_check_plagiarism(course_id: str, submission_id: str) -> tuple[Response,
         return jsonify(report), 200
 
     except CircuitBreakerOpenError as exc:
-        # Fast-fail response: 503 Service Unavailable with Retry-After
         resp = make_response(
             jsonify(
                 {
@@ -323,10 +307,9 @@ def post_check_plagiarism(course_id: str, submission_id: str) -> tuple[Response,
             503,
         )
         resp.headers["Retry-After"] = str(int(max(1, exc.retry_after)))
-        return resp
+        return resp, 503
 
     except (PlagiarismProviderError, TimeoutError, ConnectionError) as exc:
-        # Upstream fault captured before breaker tripped
         return (
             jsonify(
                 {
@@ -339,7 +322,7 @@ def post_check_plagiarism(course_id: str, submission_id: str) -> tuple[Response,
         )
 
 
-@p5_circuit_breaker_bp.route(
+@plagiarism_bp.route(
     "/courses/<course_id>/submissions/<submission_id>/plagiarism-breaker/status",
     methods=["GET"],
 )
@@ -350,7 +333,7 @@ def get_breaker_status(course_id: str, submission_id: str) -> tuple[Response, in
     return jsonify(breaker.get_status()), 200
 
 
-@p5_circuit_breaker_bp.route("/api/lab/plagiarism-breaker/reset", methods=["POST"])
+@plagiarism_bp.route("/api/lab/plagiarism-breaker/reset", methods=["POST"])
 @require_role("ADMIN", "admin")
 def post_reset_breaker() -> tuple[Response, int]:
     """Admin-only endpoint to reset the circuit breaker state for testing."""

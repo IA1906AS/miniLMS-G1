@@ -30,3 +30,17 @@ build/
 # Logs & Environment
 *.log
 .env
+
+# Agent & AI Assistant Tooling (Kept on local disk, ignored from Git repo)
+.agents/
+AGENTS.md
+AGENT.md
+PROMPT_KHOI_DONG.md
+docs/agent-kit/
+docs/antigravity/
+scripts/
+.gemini/
+.claude/
+.cursor/
+*.agent.md
+.system_generated/

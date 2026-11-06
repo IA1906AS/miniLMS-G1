@@ -1,10 +1,8 @@
-"""Defensive Pattern #9: Bulkhead Isolation for Grade Report Export.
+"""Grade Reports & Bulkhead Concurrency Isolation Module.
 
-This module implements:
-1. BulkheadLimiter: Thread-safe, bounded capacity semaphore isolating CPU/IO-heavy exports.
-2. GradeExportService: Exports grade reports with strict authorization, output sanitization,
-   and instant 429 fast-fail when capacity is reached, preventing thread exhaustion.
-3. p9_bulkhead_bp: Flask blueprint exposing the grade export and bulkhead monitoring endpoints.
+Protects critical API endpoints from resource starvation caused by heavy
+CPU/IO tasks (such as CSV/JSON grade exports) by bounding worker concurrency
+with a strict semaphore limiter (Bulkhead Pattern).
 """
 
 from __future__ import annotations
@@ -91,12 +89,10 @@ class GradeExportService:
         if not actor or not isinstance(actor, dict):
             raise Unauthenticated("Unauthenticated")
 
-        # 1. Course Existence Check (404)
         course = store.get_course_by_id(course_id)
         if course is None:
             raise NotFound(f"Course '{course_id}' not found")
 
-        # 2. Strict Authorization (403) - Instructor of course or Admin only
         role = str(actor.get("role", "")).upper()
         actor_id = str(actor.get("id", ""))
 
@@ -111,7 +107,6 @@ class GradeExportService:
 
         limiter = bulkhead or _GLOBAL_EXPORT_BULKHEAD
 
-        # 3. Bulkhead Concurrency Gate
         if not limiter.try_acquire():
             raise BulkheadFullError(
                 "Hệ thống xuất bảng điểm đang ở công suất tối đa. Vui lòng thử lại sau.",
@@ -119,11 +114,9 @@ class GradeExportService:
             )
 
         try:
-            # Simulate heavy processing if requested (for load testing)
             if simulated_delay > 0.0:
                 time.sleep(simulated_delay)
 
-            # Gather grades
             enrollments = store.get_enrollments(course_id)
             records = []
             for e in enrollments:
@@ -162,10 +155,11 @@ class GradeExportService:
 
 
 # Blueprint registration
-p9_bulkhead_bp = Blueprint("p9_bulkhead", __name__)
+reports_bp = Blueprint("reports", __name__)
+p9_bulkhead_bp = reports_bp  # Backward compatibility alias
 
 
-@p9_bulkhead_bp.route("/courses/<course_id>/grades/export", methods=["GET"])
+@reports_bp.route("/courses/<course_id>/grades/export", methods=["GET"])
 @require_role("ADMIN", "admin", "INSTRUCTOR", "instructor", "teacher")
 def get_export_course_grades(course_id: str) -> tuple[Response, int] | Response:
     """Export course grades with Bulkhead bounded concurrency protection."""
@@ -222,10 +216,9 @@ def get_export_course_grades(course_id: str) -> tuple[Response, int] | Response:
         return resp
 
 
-@p9_bulkhead_bp.route("/courses/<course_id>/grades/export/bulkhead-status", methods=["GET"])
+@reports_bp.route("/courses/<course_id>/grades/export/bulkhead-status", methods=["GET"])
 @require_role("ADMIN", "admin", "INSTRUCTOR", "instructor", "teacher")
 def get_export_bulkhead_status(course_id: str) -> tuple[Response, int]:
     """Inspect current capacity metrics of the export bulkhead limiter."""
     bulkhead: BulkheadLimiter = current_app.config.get("EXPORT_BULKHEAD", _GLOBAL_EXPORT_BULKHEAD)
     return jsonify(bulkhead.get_metrics()), 200
-

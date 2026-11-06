@@ -1,104 +1,120 @@
-# miniLMS (Group 1 - IAW301)
+# EduShield miniLMS — Secure Learning Management System
 
-[![CI](https://github.com/IA1906AS/miniLMS-G1/actions/workflows/ci.yml/badge.svg)](https://github.com/IA1906AS/miniLMS-G1/actions/workflows/ci.yml)
-
-Hệ thống quản trị học tập thu nhỏ (miniLMS) được xây dựng và chuẩn hóa quy trình phát triển bằng **Python** và **uv** (Astral) với kiến trúc an ninh đa tầng **Defense-in-Depth (8 lớp bảo mật)**.
-
-> 📖 **Báo cáo Tổng Hợp Đầy Đủ:** Xem chi tiết toàn bộ chức năng, 8 tầng phòng thủ bảo mật, ma trận phân quyền và danh mục API tại [**`PROJECT_SECURITY_SUMMARY.md`**](PROJECT_SECURITY_SUMMARY.md).
+> **Dự án Môn học:** Phát triển & Kiểm thử Ứng dụng An toàn (IAW301) — Nhóm 1  
+> **Kiến trúc:** Clean Architecture & 7-Layer Defense-in-Depth  
+> **Công nghệ cốt lõi:** Python 3.14+, Flask 3.1, SQLAlchemy 2.0, PostgreSQL 16, TailwindCSS, Alpine.js
 
 ---
 
-## 1. Yêu cầu Hệ thống
+## 1. Giới Thiệu Tổng Quan
 
-- **Python**: `>= 3.13` (Mặc định `3.14`)
-- **uv**: Trình quản lý gói và môi trường ảo siêu tốc ([Cài đặt uv](https://docs.astral.sh/uv/getting-started/installation/))
-- **Git**: Quản lý phiên bản mã nguồn
+**EduShield miniLMS** là hệ thống quản lý học tập (LMS) thế hệ mới được thiết kế theo tiêu chuẩn an ninh phần mềm của OWASP. Dự án kết hợp hài hòa giữa các chức năng quản trị đào tạo thực tế với mô hình phòng thủ đa tầng (**Defense-in-Depth**) và các mẫu thiết kế hệ thống phân tán chịu lỗi cao.
+
+Hệ thống được tổ chức hoàn chỉnh như một ứng dụng web thống nhất, loại bỏ hoàn toàn các giao diện thử nghiệm mẫu đơn lẻ, cho phép kiểm thử bảo mật tự nhiên thông qua các công cụ chuyên dụng như **Burp Suite**, **SQLMap**, hoặc các kịch bản kiểm thử API tự động.
 
 ---
 
-## 2. Cài đặt Môi trường Phát triển
+## 2. Mô Hình An Ninh Defense-in-Depth 7 Lớp
 
-1. **Clone repository về máy:**
+| Tầng Phòng Thủ | Module Đảm Nhiệm | Trách Nhiệm An Toàn |
+|:---|:---|:---|
+| **Layer 1: Input Validation** | `schemas.py` | Kiểm tra nghiêm ngặt kiểu dữ liệu, giới hạn độ dài, định dạng email/mật khẩu, chặn payload rác ngay tại cửa vào. |
+| **Layer 2: Deny-by-Default Gatekeeper** | `gate.py` | Chặn toàn bộ các request không có JWT Bearer Token hợp lệ (thuật toán bắt buộc `HS256`, kiểm tra hạn dùng `exp`), ngoại trừ các public endpoint được allowlist. |
+| **Layer 3: Route-Level RBAC** | `guards.py` | Phân quyền vai trò người dùng (`ADMIN`, `INSTRUCTOR`, `STUDENT`) thông qua decorator `@require_roles`. |
+| **Layer 4: Domain Service Authorization** | `services.py` | Kiểm soát quyền sở hữu tài nguyên (IDOR/BOLA): chỉ giảng viên phụ trách môn học mới được cập nhật điểm; sinh viên chỉ được xem điểm của chính mình. |
+| **Layer 5: Storage & Transaction Integrity** | `database.py`, `models.py` | Sử dụng ORM SQLAlchemy với câu lệnh tham số hóa chống triệt để SQL Injection; giao dịch ACID và phân cách dữ liệu. |
+| **Layer 6: Standard Error Handling** | `errors.py` | Chuẩn hóa thông điệp lỗi theo RFC 7807, giấu kín stacktrace kỹ thuật và thông tin hệ thống nhạy cảm. |
+| **Layer 7: Brute-Force & Audit Trail** | `auth.py`, `audit.py` | Chống tấn công dò mật khẩu (khóa tài khoản 15 phút sau 5 lần sai liên tiếp, thời gian phản hồi hằng số chống timing attack), lưu vết kiểm toán an toàn không rò rỉ secret. |
+
+---
+
+## 3. Các Phân Hệ Nghiệp Vụ & Cơ Chế Chịu Lỗi Hệ Thống
+
+Toàn bộ các cơ chế phòng thủ nâng cao được tích hợp trực tiếp vào domain nghiệp vụ LMS:
+- **Kiểm Tra Đạo Văn (Circuit Breaker):** `plagiarism.py` — Tự động ngắt kết nối (Trip to Open) và phản hồi nhanh khi dịch vụ kiểm tra đạo văn bên ngoài gặp sự cố, tránh nghẽn thread máy chủ.
+- **Bảng Thống Kê Điểm Số (Timeout & Fallback):** `dashboard.py` — Áp dụng giới hạn thời gian (deadline) cho các truy vấn tổng hợp nặng; tự động chuyển sang dữ liệu bộ đệm (cache fallback) khi dịch vụ thống kê quá tải.
+- **Khảo Thí Trắc Nghiệm (State Machine Lifecycle):** `quizzes.py` — Quản lý vòng đời bài thi chặt chẽ (`CREATED` $\rightarrow$ `IN_PROGRESS` $\rightarrow$ `SUBMITTED`/`EXPIRED`), ngăn chặn hoàn toàn việc sửa đáp án sau nộp hoặc nộp đúp.
+- **Ghi Danh & Thông Báo (Transactional Outbox):** `outbox.py` — Đảm bảo việc sinh viên ghi danh và phát sinh sự kiện thông báo luôn diễn ra nguyên khối trong cùng một giao dịch database, có cơ chế retry tự động với backoff.
+- **Xuất Báo Cáo Điểm (Bulkhead Concurrency):** `reports.py` — Cách ly số lượng luồng xử lý xuất báo cáo nặng (giới hạn semaphore), bảo đảm các endpoint trọng yếu như đăng nhập, xem điểm luôn phản hồi tức thì.
+- **Giữ Chỗ Đăng Ký Lớp Học (Two-Phase Reservation):** `reservations.py` — Giữ chỗ có thời hạn (`HELD`), kiểm soát sĩ số phòng máy/lớp học nghiêm ngặt và tự động thu hồi chỗ khi hết hạn giữ.
+- **Xử Lý Chống Trùng Lặp (Idempotency Key):** `services.py` — Ngăn chặn trùng lặp nộp bài tập hoặc xử lý thanh toán/ghi danh khi người dùng bấm nút nhiều lần hoặc có mạng chập chờn.
+
+---
+
+## 4. Cài Đặt & Khởi Chạy
+
+### Yêu cầu tiên quyết
+- Python 3.13 hoặc 3.14 (Khuyến nghị 64-bit)
+- PostgreSQL 16 (Tùy chọn cho môi trường sản xuất; hệ thống tự động fallback về in-memory store khi chạy test local)
+
+### Các bước cài đặt:
+1. **Clone repository và truy cập thư mục:**
    ```bash
-   git clone https://github.com/IA1906AS/miniLMS-G1.git
-   cd miniLMS-G1
+   git clone <repo-url>
+   cd IAW301-Project_Group_1
    ```
 
-2. **Cài đặt các gói phụ thuộc (bao gồm nhóm dev):**
-   ```bash
-   uv sync
+2. **Khởi tạo và kích hoạt môi trường ảo:**
+   ```powershell
+   # Windows PowerShell
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
    ```
 
-3. **Cài đặt Git Pre-commit Hooks:**
-   ```bash
-   uv run pre-commit install
+3. **Cài đặt các gói phụ thuộc:**
+   ```powershell
+   pip install -e ".[dev]"
+   ```
+
+4. **Khởi tạo Cơ sở dữ liệu PostgreSQL (Tùy chọn):**
+   ```powershell
+   # Chạy script khởi tạo schema và seed data:
+   psql -U postgres -d minidb -f database/init.sql
+   ```
+
+5. **Khởi chạy ứng dụng:**
+   ```powershell
+   python run.py
+   # Ứng dụng khởi động tại: http://127.0.0.1:5000
    ```
 
 ---
 
-## 3. Các Lệnh Kiểm tra Chất lượng Mã Nguồn (CI & Local)
+## 5. Tài Khoản Thử Nghiệm
 
-Dự án áp dụng bộ công cụ nghiêm ngặt để đảm bảo chất lượng mã nguồn trước khi tích hợp:
+Mật khẩu mặc định cho tất cả tài khoản là: **`Lms@2026`**
 
-| Mục tiêu | Lệnh thực thi | Mô tả |
-| :--- | :--- | :--- |
-| **Linting** | `uv run ruff check` | Kiểm tra lỗi cú pháp, quy ước code và imports (`--fix` để tự động sửa) |
-| **Formatting** | `uv run ruff format --check` | Kiểm tra định dạng code chuẩn PEP 8 |
-| **Type Checking** | `uv run mypy` | Kiểm tra kiểu dữ liệu tĩnh nghiêm ngặt (Strict mode) |
-| **Unit Testing** | `uv run pytest` | Chạy bộ kiểm thử tự động |
-| **Test Coverage** | `uv run pytest --cov` | Báo cáo tỷ lệ bao phủ kiểm thử (Test Coverage) |
-| **SAST Security** | `uv run semgrep scan --config=.semgrep/minilms_rules.yaml --metrics=off` | Quét tĩnh phát hiện lỗ hổng bảo mật và quy tắc phòng thủ miniLMS |
-| **Pre-commit Run** | `uv run pre-commit run --all-files` | Chạy thử nghiệm tất cả các hook trên toàn bộ tệp |
+| Email | Vai Trò (Role) | Chức Danh / Họ Tên | Mục Đích Kiểm Thử |
+|:---|:---|:---|:---|
+| `admin@lms.test` | `ADMIN` | Quản Trị Viên Hệ Thống | Kiểm tra quản lý người dùng, nhật ký kiểm toán (Audit Log) |
+| `an.gv@lms.test` | `INSTRUCTOR` | ThS. Nguyễn Văn An | Giảng viên môn Lập trình Web & An toàn Web; chấm điểm, tạo bài |
+| `binh.gv@lms.test`| `INSTRUCTOR` | TS. Trần Thị Bình | Giảng viên môn Cơ sở dữ liệu; kiểm tra phân quyền liên môn học |
+| `chi.sv@lms.test` | `STUDENT` | Lê Linh Chi | Sinh viên môn Web; kiểm tra xem điểm, nộp bài, thi trắc nghiệm |
+| `dung.sv@lms.test`| `STUDENT` | Phạm Quốc Dũng | Sinh viên môn An toàn Web & CSDL; kiểm tra giữ chỗ phòng máy |
+| `em.sv@lms.test`  | `STUDENT` | Hoàng Thị Ánh Em | Sinh viên môn CSDL; kiểm tra chống truy cập IDOR |
 
 ---
 
-## 4. Cấu trúc Dự án (`src-layout`)
+## 6. Kiểm Thử Hệ Thống (Testing & Verification)
 
-```text
-IAW301-Project_Group_1/
-├── .github/
-│   └── workflows/
-│       └── ci.yml             # Workflow GitHub Actions tự động kiểm tra CI
-├── src/
-│   └── lms_project_1/
-│       ├── __init__.py        # Điểm khởi chạy chính của ứng dụng
-│       ├── audit.py           # Module kiểm toán và log thao tác
-│       ├── auth.py            # Module xác thực người dùng
-│       ├── errors.py          # Định nghĩa lỗi hệ thống
-│       ├── gate.py            # Cổng kiểm soát truy cập và bảo vệ API
-│       ├── guards.py          # Ràng buộc điều kiện và kiểm tra quyền
-│       ├── schemas.py         # Mô hình dữ liệu và lược đồ
-│       ├── services.py        # Logic nghiệp vụ chính
-│       └── store.py           # Quản lý lưu trữ và dữ liệu
-├── tests/
-│   └── test_basic.py          # Kiểm thử cơ bản hàm main
-├── .gitignore                 # Danh sách các tệp/thư mục bỏ qua khi commit
-├── .pre-commit-config.yaml    # Cấu hình Git Hook tự động chạy Ruff & Mypy
-├── .python-version            # Khóa phiên bản Python (3.14)
-├── pyproject.toml             # Cấu hình dự án, gói phụ thuộc và các công cụ
-├── requirements.txt           # Danh sách các gói phụ thuộc
-├── seed.json                  # Dữ liệu khởi tạo ban đầu
-├── uv.lock                    # Khóa phiên bản dependencies chính xác
-└── README.md                  # Tài liệu giới thiệu và hướng dẫn dự án
+### Chạy Static Analysis (Linter):
+```powershell
+.\.venv\Scripts\ruff.exe check src tests
 ```
 
+### Chạy Bộ Kiểm Thử Tự Động (120 Tests):
+```powershell
+.\.venv\Scripts\pytest.exe -v
+```
+
+### Ma trận kiểm thử an ninh chuyên sâu:
+- **`tests/test_defense_in_depth.py`**: Kiểm thử toàn diện 19 ca bảo mật **A1 đến A19**.
+- **`tests/test_auth_and_rbac.py`**: Kiểm thử phân quyền truy cập và xác thực tài khoản.
+- **`tests/test_idempotency_key.py`**: Kiểm thử chống gửi lặp bài tập và xử lý xung đột đồng thời.
+- **`tests/test_pattern_*.py`**: Kiểm thử các mẫu thiết kế chịu lỗi (Circuit Breaker, Timeout, State Machine, Outbox, Bulkhead, Reservation).
+
 ---
 
-## 5. Quy trình Phát triển Tính năng Mới
+## 7. Giấy Phép & Tác Quyền
 
-1. Tạo nhánh mới từ `main` hoặc `master`:
-   ```bash
-   git switch -c feat/<ten-tinh-nang>
-   ```
-2. Phát triển tính năng trong thư mục `src/lms_project_1/`.
-3. Viết đầy đủ unit tests bổ sung vào thư mục `tests/`.
-4. Chạy kiểm tra toàn bộ trước khi commit:
-   ```bash
-   uv run ruff check --fix
-   uv run ruff format
-   uv run mypy
-   uv run semgrep scan --config=.semgrep/minilms_rules.yaml --metrics=off
-   uv run pytest --cov
-   ```
-5. Commit code (Pre-commit hook sẽ tự động chạy để kiểm tra lại một lần nữa).
-6. Tạo Pull Request lên GitHub và kiểm tra trạng thái CI Actions.
+Dự án được xây dựng phục vụ nghiên cứu và học tập môn học **IAW301 - An Toàn Ứng Dụng Web**. Mọi hành vi kiểm thử tải hoặc quét lỗ hổng chỉ được phép thực hiện trên môi trường máy chủ nội bộ.

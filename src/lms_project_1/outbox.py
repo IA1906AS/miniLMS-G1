@@ -1,11 +1,8 @@
-"""Defensive Pattern #8: Transactional Outbox for Course Enrollment Confirmation Email.
+"""Transactional Outbox & Event Dispatcher Module.
 
-This module implements:
-1. TransactionalEnrollmentService: Enrolls student and enqueues outbox event atomically.
-2. FakeEmailSender: Isolated mock mailer tracking sent emails for verification.
-3. OutboxWorker: Background processor dispatching pending events with retry, backoff,
-   and dead-letter handling without third-party message broker dependencies.
-4. p8_outbox_bp: Flask blueprint exposing endpoints for transactional enrollment & inspection.
+Guarantees atomicity between business operations (such as course enrollment)
+and domain event generation (e.g., student confirmation notifications),
+ensuring zero event loss even during external network disruptions.
 """
 
 from __future__ import annotations
@@ -84,12 +81,10 @@ class TransactionalEnrollmentService:
         student_id = str(actor.get("id", ""))
         student_email = str(actor.get("email", ""))
 
-        # 1. Check Course Existence (404)
         course = store.get_course_by_id(course_id)
         if course is None:
             raise NotFound(f"Course '{course_id}' not found")
 
-        # 2. Check Duplicate Enrollment (409)
         enrollment_key = (course_id, student_id)
         if enrollment_key in store.enrollments:
             raise ConflictError("Sinh viên đã ghi danh khóa học này từ trước")
@@ -97,9 +92,7 @@ class TransactionalEnrollmentService:
         now = datetime.now(UTC)
         dedupe_key = f"enroll_email_{course_id}_{student_id}"
 
-        # 3. ATOMIC TRANSACTION: Write enrollment and outbox event together
         with store.outbox_lock:
-            # Ghi danh
             enrollment_record: dict[str, Any] = {
                 "courseId": course_id,
                 "studentId": student_id,
@@ -108,7 +101,6 @@ class TransactionalEnrollmentService:
             }
             store.enrollments[enrollment_key] = enrollment_record
 
-            # Outbox Event (Payload strictly sanitizes secrets: no passwords, no tokens)
             event_id = f"evt_{uuid.uuid4().hex[:12]}"
             outbox_record: dict[str, Any] = {
                 "id": event_id,
@@ -191,10 +183,11 @@ class OutboxWorker:
 
 
 # Blueprint registration
-p8_outbox_bp = Blueprint("p8_outbox", __name__)
+outbox_bp = Blueprint("outbox", __name__)
+p8_outbox_bp = outbox_bp  # Backward compatibility alias
 
 
-@p8_outbox_bp.route("/courses/<course_id>/enroll-with-outbox", methods=["POST"])
+@outbox_bp.route("/courses/<course_id>/enroll-with-outbox", methods=["POST"])
 @require_role("STUDENT", "student", "ADMIN", "admin")
 def post_enroll_with_outbox(course_id: str) -> tuple[Response, int]:
     """Enroll student into course with Transactional Outbox confirmation guarantees."""
@@ -207,21 +200,19 @@ def post_enroll_with_outbox(course_id: str) -> tuple[Response, int]:
     return jsonify(result), 201
 
 
-@p8_outbox_bp.route("/courses/<course_id>/enrollment-events", methods=["GET"])
+@outbox_bp.route("/courses/<course_id>/enrollment-events", methods=["GET"])
 @require_role("ADMIN", "admin", "INSTRUCTOR", "instructor", "teacher")
 def get_enrollment_events(course_id: str) -> tuple[Response, int]:
     """Inspect all outbox events for a given course."""
     store: Store = current_app.config["STORE"]
     with store.outbox_lock:
         events = [
-            e
-            for e in store.outbox_events
-            if e.get("payload", {}).get("courseId") == course_id
+            e for e in store.outbox_events if e.get("payload", {}).get("courseId") == course_id
         ]
     return jsonify({"courseId": course_id, "outboxEvents": events}), 200
 
 
-@p8_outbox_bp.route("/api/lab/outbox/process-worker", methods=["POST"])
+@outbox_bp.route("/api/lab/outbox/process-worker", methods=["POST"])
 @require_role("ADMIN", "admin")
 def post_trigger_outbox_worker() -> tuple[Response, int]:
     """Admin endpoint to manually invoke outbox processor for testing and demo."""

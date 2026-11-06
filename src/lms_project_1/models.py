@@ -49,6 +49,24 @@ class User(Base):
         nullable=False,
         default="guest",
     )
+    bio: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        default="",
+    )
+    phone_number: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+    avatar_url: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    notification_preferences: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        default="{}",
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -83,6 +101,9 @@ class User(Base):
             "email": self.email,
             "full_name": self.full_name,
             "role": self.role,
+            "bio": self.bio,
+            "phone_number": self.phone_number,
+            "avatar_url": self.avatar_url,
             "is_active": self.is_active,
             "is_verified": self.is_verified,
             "created_at": self.created_at.isoformat() if self.created_at else None,
@@ -356,4 +377,105 @@ class SeatReservation(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+
+
+class Lesson(Base):
+    """Lesson table for course content."""
+
+    __tablename__ = "lessons"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    course_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+    )
+
+
+class CourseClass(Base):
+    """Course class room/schedule instance for seat reservation."""
+
+    __tablename__ = "classes"
+
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
+    course_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    code: Mapped[str] = mapped_column(String(50), nullable=False)
+    room: Mapped[str] = mapped_column(String(50), nullable=False, default="Room-Online")
+    capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    reserved_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    confirmed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+    )
+
+
+class Quiz(Base):
+    """Quiz assessment metadata."""
+
+    __tablename__ = "quizzes"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    course_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("courses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    time_limit_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=1800)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
+    )
+
+
+class AuditLog(Base):
+    """Security and compliance audit trail."""
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    details: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_utcnow,
     )

@@ -8,7 +8,7 @@ import pytest
 from flask.testing import FlaskClient
 
 from lms_project_1 import create_app
-from lms_project_1.patterns.p5_circuit_breaker import (
+from lms_project_1.plagiarism import (
     CircuitBreaker,
     CircuitState,
 )

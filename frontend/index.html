@@ -699,18 +699,20 @@
               <span class="text-xs font-extrabold text-amber-600 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1 rounded-xl" x-text="'Tối đa ' + (a.maxScore || 10) + 'đ'"></span>
             </div>
 
-            <!-- Form nộp bài & Idempotency Demo -->
+            <!-- Form nộp bài tập -->
             <div class="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
               <label class="block text-[11px] font-bold text-slate-700 dark:text-slate-300">Nội dung bài làm (Link Github / Báo cáo):</label>
               <textarea rows="2" x-model="submissionContent[a.id]" placeholder="Dán link bài làm hoặc nhập nội dung giải bài tập tại đây..."
                         class="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-white focus:ring-2 focus:ring-brand-500"></textarea>
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                <button @click="submitAssignmentSolutionSecure(a.id)" class="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition shadow-sm flex items-center justify-center gap-1.5" title="Gửi kèm header Idempotency-Key chống trùng lặp">
-                  <span>🛡️ Nộp An Toàn (Idempotency Key)</span>
+              <div class="flex items-center justify-between pt-1">
+                <button @click="submitAssignmentSolution(a.id)" class="py-2.5 px-5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl transition shadow-sm flex items-center justify-center gap-2">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  <span>Nộp bài làm</span>
                 </button>
-                <button @click="submitAssignmentSolutionVulnerableDouble(a.id)" class="py-2 px-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition shadow-sm flex items-center justify-center gap-1.5" title="Gửi 2 request đồng thời để kiểm thử lỗi trùng lặp khi không có Idempotency Key">
-                  <span>⚠️ Test Lỗi (Double Submit)</span>
-                </button>
+                <span class="text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1">
+                  <svg class="w-3.5 h-3.5 text-emerald-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/></svg>
+                  Bảo vệ chống trùng lặp & kiểm tra đạo văn tự động
+                </span>
               </div>
             </div>
           </div>
@@ -1485,7 +1487,7 @@
           this.showAuthModal = true;
         },
 
-        async api(url, options = {}) {
+        async api(url, options = {}, isRetry = false) {
           const headers = {
             'Content-Type': 'application/json',
             ...(options.headers || {})
@@ -1498,6 +1500,35 @@
             res = await fetch(url, { ...options, headers });
           } catch(e) {
             return { ok: false, status: 0, data: { error: 'INTERNAL_ERROR' } };
+          }
+
+          // Session Continuity (Phase 3): Silent refresh once on 401 Unauthorized
+          if (res.status === 401 && !isRetry && !url.includes('/auth/login') && !url.includes('/auth/refresh')) {
+            const refreshToken = localStorage.getItem('refreshToken');
+            if (refreshToken) {
+              try {
+                const refreshRes = await fetch('/auth/refresh', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ refreshToken })
+                });
+                if (refreshRes.ok) {
+                  const refreshData = await refreshRes.json();
+                  this.token = refreshData.accessToken;
+                  localStorage.setItem('accessToken', this.token);
+                  if (refreshData.refreshToken) {
+                    localStorage.setItem('refreshToken', refreshData.refreshToken);
+                  }
+                  this.tokenTTL = refreshData.expiresIn || 900;
+                  // Retry the original request once with new bearer token
+                  return await this.api(url, options, true);
+                } else {
+                  this.logout();
+                }
+              } catch (e) {
+                this.logout();
+              }
+            }
           }
 
           let data = null;
@@ -1587,13 +1618,43 @@
           this.tokenTTL = sec;
           if (this.ttlInterval) clearInterval(this.ttlInterval);
           this.ttlInterval = setInterval(() => {
-            if (this.tokenTTL > 0) this.tokenTTL--;
+            if (this.tokenTTL > 0) {
+              this.tokenTTL--;
+              // Tự động gia hạn ngầm (silent refresh) khi còn 60s để trải nghiệm người dùng liền mạch
+              if (this.tokenTTL === 60 && localStorage.getItem('refreshToken')) {
+                this.silentRefreshToken();
+              }
+            }
           }, 1000);
+        },
+
+        async silentRefreshToken() {
+          const refreshToken = localStorage.getItem('refreshToken');
+          if (!refreshToken) return;
+          try {
+            const res = await fetch('/auth/refresh', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ refreshToken })
+            });
+            if (res.ok) {
+              const data = await res.json();
+              this.token = data.accessToken;
+              localStorage.setItem('accessToken', this.token);
+              if (data.refreshToken) {
+                localStorage.setItem('refreshToken', data.refreshToken);
+              }
+              this.tokenTTL = data.expiresIn || 900;
+            }
+          } catch(e) {
+            // Không làm phiền người dùng nếu lỗi mạng ngầm
+          }
         },
 
         logout() {
           this.token = '';
           localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
           this.currentUser = { id: '', email: 'guest@lms.test', role: 'GUEST', fullName: '' };
           this.currentTab = 'home';
           if (this.ttlInterval) clearInterval(this.ttlInterval);
@@ -1608,6 +1669,9 @@
           if (res.ok) {
             this.token = res.data.accessToken;
             localStorage.setItem('accessToken', this.token);
+            if (res.data.refreshToken) {
+              localStorage.setItem('refreshToken', res.data.refreshToken);
+            }
             await this.loadMe();
             this.showAuthModal = false;
             
@@ -1761,15 +1825,20 @@
             this.notify('Vui lòng nhập nội dung bài làm trước khi nộp.', 'warning');
             return;
           }
+          const idempotencyKey = (crypto && crypto.randomUUID) ? crypto.randomUUID() : ('key-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9));
           const res = await this.api(`/courses/${this.selectedCourseId}/assignments/${assignmentId}/submit`, {
             method: 'POST',
+            headers: { 'Idempotency-Key': idempotencyKey },
             body: JSON.stringify({ content: content })
           });
           if (res.ok) {
-            this.notify('Nộp bài tập thành công!', 'success');
+            this.notify('Nộp bài tập thành công (Đã xác thực chữ ký Idempotency)!', 'success');
             this.submissionContent[assignmentId] = '';
+            await this.loadCourseAssignments();
+          } else if (res.status === 409) {
+            this.notify('Yêu cầu nộp bài đang được xử lý song song, hệ thống chặn trùng lặp thành công!', 'warning');
           } else {
-            this.notify('Không thể nộp bài: ' + this.formatErrorMessage(res.data.error), 'error');
+            this.notify('Không thể nộp bài: ' + this.formatErrorMessage(res.data?.error || res.data?.message), 'error');
           }
         },
 

@@ -1,10 +1,8 @@
-"""Defensive Pattern #6: Timeout & Fallback for Course Statistics Dashboard.
+"""Course Analytics Dashboard & Timeout/Fallback Resilience Module.
 
-This module implements:
-1. FakeCourseStatsClient: Simulated upstream analytics service with configurable delay and faults.
-2. DashboardService: Enforces strict authorization, deadline-bounded upstream calls,
-   and last-known-good fallback caching without fabricating sensitive academic figures.
-3. p6_dashboard_bp: Flask blueprint exposing both patched and baseline endpoints for lab comparison.
+Provides course performance metrics aggregation with strict authorization,
+deadline-bounded upstream invocation (Timeout), and last-known-good cache (Fallback)
+to ensure graceful degradation instead of page hangs.
 """
 
 from __future__ import annotations
@@ -21,13 +19,11 @@ from lms_project_1.errors import Forbidden, NotFound, Unauthenticated, Validatio
 from lms_project_1.guards import require_role
 from lms_project_1.store import Store
 
-# Thread pool for bounded asynchronous execution of upstream stats calls
 _EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=10, thread_name_prefix="stats_worker")
 
-# Global lab configuration for dynamic delay/error injection in security audit & Burp Suite
 _LAB_CONFIG: dict[str, Any] = {
     "default_delay_seconds": 0.0,
-    "simulate_error": None,  # None, "timeout", "connection"
+    "simulate_error": None,
 }
 _LAB_LOCK = threading.Lock()
 
@@ -74,7 +70,6 @@ class FakeCourseStatsClient:
         if simulate_error == "connection":
             raise StatsConnectionError("Failed to establish TCP handshake with analytics service")
 
-        # Compute real statistics based on local store to remain consistent and honest
         course_enrollments = [
             rec for (cid, _sid), rec in store.enrollments.items() if cid == course_id
         ]
@@ -82,7 +77,6 @@ class FakeCourseStatsClient:
         scores = [float(e.get("score", 0.0)) for e in course_enrollments if "score" in e]
         avg_score = round(sum(scores) / len(scores), 2) if scores else 0.0
 
-        # Submissions count
         submissions_count = sum(
             1 for sub in store.all_submissions if sub.get("course_id") == course_id
         )
@@ -121,17 +115,15 @@ class DashboardService:
         if not actor or not isinstance(actor, dict):
             raise Unauthenticated("Unauthenticated")
 
-        # 1. Check Course Existence (404)
         course = store.get_course_by_id(course_id)
         if course is None:
             raise NotFound(f"Course '{course_id}' not found")
 
-        # 2. Strict Authorization / RBAC Object Permissions (403)
         role = str(actor.get("role", "")).upper()
         actor_id = str(actor.get("id", ""))
 
         if role == "ADMIN":
-            pass  # Admin has global oversight
+            pass
         elif role in ("INSTRUCTOR", "TEACHER"):
             instructor_id = course.get("instructorId") or course.get("instructor_id")
             if instructor_id != actor_id:
@@ -147,9 +139,7 @@ class DashboardService:
 
         client = stats_client or FakeCourseStatsClient()
 
-        # 3. BASELINE LAB MODE: Unprotected (no timeout, no fallback)
         if baseline_unprotected:
-            # Direct blocking call that hangs if delay is large or crashes on error
             stats_data = client.fetch_stats(
                 course_id=course_id,
                 store=store,
@@ -166,12 +156,7 @@ class DashboardService:
                 "mode": "baseline_unprotected",
             }
 
-        # 4. PATCHED MODE: Deadline Bound Execution with Fallback
-        deadline = (
-            timeout_seconds
-            if timeout_seconds is not None
-            else cls.DEFAULT_TIMEOUT_SECONDS
-        )
+        deadline = timeout_seconds if timeout_seconds is not None else cls.DEFAULT_TIMEOUT_SECONDS
 
         future = _EXECUTOR.submit(
             client.fetch_stats,
@@ -183,7 +168,6 @@ class DashboardService:
 
         try:
             stats_data = future.result(timeout=deadline)
-            # Update last-known-good cache for this specific course
             with store.dashboard_lock:
                 store.dashboard_cache[course_id] = {
                     "data": stats_data,
@@ -201,7 +185,6 @@ class DashboardService:
             }
 
         except (concurrent.futures.TimeoutError, StatsTimeoutError):
-            # Upstream timed out: execute fallback
             return cls._resolve_fallback(
                 course_id=course_id,
                 course=course,
@@ -214,7 +197,6 @@ class DashboardService:
             )
 
         except (StatsConnectionError, Exception) as exc:
-            # Upstream network/service failure: execute fallback
             return cls._resolve_fallback(
                 course_id=course_id,
                 course=course,
@@ -253,7 +235,6 @@ class DashboardService:
                 "mode": "patched_fallback_cached",
             }
 
-        # If no last-known-good cache exists, return honest degraded response without fake stats
         return {
             "courseId": course_id,
             "title": course.get("title", ""),
@@ -262,34 +243,27 @@ class DashboardService:
             "asOf": None,
             "reasonCode": reason_code,
             "warning": (
-                f"{warning} Hiện chưa có dữ liệu đệm, "
-                "hệ thống phản hồi ở mức suy giảm an toàn."
+                f"{warning} Hiện chưa có dữ liệu đệm, hệ thống phản hồi ở mức suy giảm an toàn."
             ),
             "mode": "patched_fallback_degraded",
         }
 
 
 # Blueprint registration
-p6_dashboard_bp = Blueprint("p6_dashboard", __name__)
+dashboard_bp = Blueprint("dashboard", __name__)
+p6_dashboard_bp = dashboard_bp  # Backward compatibility alias
 
 
-@p6_dashboard_bp.route("/courses/<course_id>/dashboard", methods=["GET"])
+@dashboard_bp.route("/courses/<course_id>/dashboard", methods=["GET"])
 @require_role("ADMIN", "INSTRUCTOR", "STUDENT", "admin", "instructor", "student", "teacher")
 def get_course_dashboard_endpoint(course_id: str) -> tuple[Response, int]:
-    """Protected Dashboard endpoint applying Pattern #6: Timeout & Fallback.
-
-    Accepts optional lab parameters:
-    - baseline: 'true' to trigger unprotected mode (baseline lab for before-after testing)
-    - delay_ms: simulated upstream delay in milliseconds
-    - error: 'timeout' or 'connection' to simulate upstream faults
-    """
+    """Protected Dashboard endpoint applying Timeout & Fallback resilience."""
     actor = getattr(g, "actor", None)
     if not actor or not isinstance(actor, dict):
         raise Unauthenticated("Unauthenticated")
 
     store: Store = current_app.config["STORE"]
 
-    # Read lab query params
     baseline_param = request.args.get("baseline", "").lower() in ("1", "true", "yes")
     delay_ms = request.args.get("delay_ms")
     delay_sec: float | None = None
@@ -317,10 +291,10 @@ def get_course_dashboard_endpoint(course_id: str) -> tuple[Response, int]:
     return jsonify(dashboard_data), 200
 
 
-@p6_dashboard_bp.route("/courses/<course_id>/dashboard/baseline", methods=["GET"])
+@dashboard_bp.route("/courses/<course_id>/dashboard/baseline", methods=["GET"])
 @require_role("ADMIN", "INSTRUCTOR", "STUDENT", "admin", "instructor", "student", "teacher")
 def get_course_dashboard_baseline_endpoint(course_id: str) -> tuple[Response, int]:
-    """Explicit baseline endpoint demonstrating vulnerable behavior without timeout/fallback."""
+    """Explicit baseline endpoint demonstrating unthrottled/unprotected behavior."""
     actor = getattr(g, "actor", None)
     if not actor or not isinstance(actor, dict):
         raise Unauthenticated("Unauthenticated")
@@ -343,10 +317,10 @@ def get_course_dashboard_baseline_endpoint(course_id: str) -> tuple[Response, in
     return jsonify(dashboard_data), 200
 
 
-@p6_dashboard_bp.route("/api/lab/stats-mock/configure", methods=["POST"])
+@dashboard_bp.route("/api/lab/stats-mock/configure", methods=["POST"])
 @require_role("ADMIN", "admin")
 def configure_lab_stats_mock() -> tuple[Response, int]:
-    """Admin-only endpoint to configure mock delay and faults for Burp Suite security audit."""
+    """Admin-only endpoint to configure mock delay and faults for security audit."""
     if not request.is_json:
         raise ValidationError("Request body must be JSON")
 

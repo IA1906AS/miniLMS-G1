@@ -10,7 +10,7 @@ import pytest
 from flask.testing import FlaskClient
 
 from lms_project_1 import create_app
-from lms_project_1.patterns.p9_bulkhead import BulkheadLimiter
+from lms_project_1.reports import BulkheadLimiter
 
 
 @pytest.fixture
@@ -187,4 +187,3 @@ def test_b9_06_response_sanitization_no_secrets_leaked(client: FlaskClient) -> N
     assert "password_hash" not in raw_text
     assert "secret" not in raw_text.lower()
     assert "token" not in raw_text.lower()
-

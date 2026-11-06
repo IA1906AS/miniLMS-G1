@@ -186,5 +186,57 @@
       "score": 9.5,
       "feedback": "Bài làm chỉn chu, có biểu đồ EXPLAIN ANALYZE so sánh chi phí trước và sau khi đánh chỉ mục."
     }
+  ],
+  "classes": [
+    {
+      "id": "lab_ai_101",
+      "courseId": "c1",
+      "name": "Lab AI & Web Nâng Cao",
+      "capacity": 2,
+      "room": "Phòng Lab 402 - Tòa Alpha",
+      "schedule": "Thứ 2 & Thứ 5, 08:00 - 11:30"
+    },
+    {
+      "id": "seminar_sec",
+      "courseId": "c3",
+      "name": "Hội Thảo Bảo Mật Web & DevSecOps",
+      "capacity": 3,
+      "room": "Hội trường B - Tòa Beta",
+      "schedule": "Thứ 7, 13:30 - 17:00"
+    },
+    {
+      "id": "db_tuning_lab",
+      "courseId": "c2",
+      "name": "Chuyên đề Tối ưu Hóa Cơ sở dữ liệu Cỡ lớn",
+      "capacity": 5,
+      "room": "Phòng Máy 205 - Tòa Gamma",
+      "schedule": "Thứ 4, 13:30 - 16:45"
+    }
+  ],
+  "quizzes": [
+    {
+      "id": "quiz_c1_01",
+      "courseId": "c1",
+      "title": "Trắc nghiệm Kiến trúc REST & HTTP Headers",
+      "durationMinutes": 30,
+      "totalQuestions": 15,
+      "passScore": 6.0
+    },
+    {
+      "id": "quiz_c2_01",
+      "courseId": "c2",
+      "title": "Trắc nghiệm Chuẩn hóa 3NF & Chỉ mục B-Tree",
+      "durationMinutes": 45,
+      "totalQuestions": 20,
+      "passScore": 5.0
+    },
+    {
+      "id": "quiz_c3_01",
+      "courseId": "c3",
+      "title": "Trắc nghiệm Kiểm soát Xác thực & Chống IDOR",
+      "durationMinutes": 40,
+      "totalQuestions": 20,
+      "passScore": 7.0
+    }
   ]
 }
