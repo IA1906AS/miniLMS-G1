@@ -626,15 +626,16 @@
                 <span class="text-slate-400 block text-[10px]">Bài học tiếp theo:</span>
                 <span class="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-xs block" x-text="c.nextLessonTitle || 'Đã hoàn thành toàn bộ bài học'"></span>
               </div>
-              <template x-if="c.nextLessonId">
-                <button @click="completeLesson(c.id, c.nextLessonId)" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-xl transition shadow-sm">
-                  Đánh dấu hoàn thành &check;
-                </button>
-              </template>
+              <button type="button" @click.stop="continueLearning(c)" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] rounded-xl transition shadow-sm">
+                <span x-text="c.nextLessonId ? 'Mở bài học →' : 'Xem lại nội dung'"></span>
+              </button>
             </div>
 
             <div class="flex items-center justify-between pt-2">
               <span class="text-xs text-slate-500">Điểm hiện tại: <strong class="text-brand-600 dark:text-brand-400 text-sm" x-text="c.score"></strong> / 10.0</span>
+              <button type="button" @click.stop="openLearningCourse(c)" class="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline">
+                Nội dung &amp; Quiz
+              </button>
               <button x-show="c.progress >= 100" @click="issueCertificate(c.id)" class="text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline">
                 Tải chứng chỉ
               </button>
@@ -1389,6 +1390,136 @@
     </div>
   </div>
 
+  <!-- Student learning center: lesson player and playable quizzes (LRN-02/03, ASM-01/03). -->
+  <div x-show="showLearningCenter" x-cloak @click.self="closeLearningCenter()" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Nội dung khóa học">
+    <div class="max-w-4xl w-full max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-2xl">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <p class="text-xs font-bold text-emerald-600">TRUNG TÂM HỌC TẬP</p>
+          <h3 class="text-2xl font-extrabold text-slate-900 dark:text-white" x-text="learningCourse?.title || 'Đang tải khóa học'"></h3>
+        </div>
+        <button @click="closeLearningCenter()" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Đóng trung tâm học tập">&times;</button>
+      </div>
+
+      <div x-show="learningLoading" class="py-16 text-center text-sm text-slate-500" role="status">Đang tải bài học và quiz...</div>
+      <div x-show="!learningLoading && learningError" class="mt-5 p-4 rounded-2xl bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-300" x-text="learningError"></div>
+
+      <div x-show="!learningLoading && !learningError" class="space-y-6 mt-5">
+        <section class="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/70">
+          <div class="flex justify-between text-xs font-bold mb-2">
+            <span>Tiến độ bài học</span>
+            <span x-text="(learningProgress.percent || 0) + '%'"></span>
+          </div>
+          <div class="h-2.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-brand-600 to-emerald-500 transition-all" :style="'width:' + (learningProgress.percent || 0) + '%' "></div>
+          </div>
+          <p class="mt-2 text-[11px] text-slate-500" x-text="`${learningProgress.completedLessons || 0}/${learningProgress.totalLessons || 0} bài đã hoàn thành`"></p>
+        </section>
+
+        <section>
+          <h4 class="font-extrabold text-slate-900 dark:text-white mb-3">Bài học</h4>
+          <template x-for="chapter in (learningCourse?.curriculum || [])" :key="chapter.id || 'unassigned'">
+            <div class="mb-3 p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+              <p class="text-sm font-bold mb-2" x-text="chapter.title"></p>
+              <div class="space-y-2">
+                <template x-for="lesson in (chapter.lessons || [])" :key="lesson.id">
+                  <button @click="openLesson(learningCourse.id, lesson.id)" class="w-full flex items-center justify-between gap-3 p-3 rounded-xl text-left bg-slate-50 hover:bg-brand-50 dark:bg-slate-800 dark:hover:bg-brand-500/10 transition">
+                    <span>
+                      <span class="block text-xs font-bold" x-text="lesson.title"></span>
+                      <span class="block text-[10px] text-slate-400" x-text="lesson.contentType === 'VIDEO' ? 'Video và tài liệu' : 'Bài đọc và tài liệu'"></span>
+                    </span>
+                    <span class="text-[11px] font-bold" :class="isLessonComplete(lesson.id) ? 'text-emerald-600' : 'text-brand-600'" x-text="isLessonComplete(lesson.id) ? '✓ Đã học' : 'Mở bài →'"></span>
+                  </button>
+                </template>
+                <p x-show="!(chapter.lessons || []).length" class="text-xs text-slate-400">Chương này chưa có bài học.</p>
+              </div>
+            </div>
+          </template>
+          <p x-show="!(learningCourse?.curriculum || []).length" class="text-xs text-slate-400 p-4">Khóa học chưa có bài học.</p>
+        </section>
+
+        <section>
+          <h4 class="font-extrabold text-slate-900 dark:text-white mb-3">Bài kiểm tra</h4>
+          <div class="grid sm:grid-cols-2 gap-3">
+            <template x-for="quiz in courseQuizzes" :key="quiz.id">
+              <div class="p-4 rounded-2xl border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50/50 dark:bg-indigo-500/5">
+                <p class="font-bold text-sm" x-text="quiz.title"></p>
+                <p class="text-[11px] text-slate-500 mt-1" x-text="`${quiz.questionCount} câu • ${Math.round(quiz.timeLimitSeconds / 60)} phút • Đạt ${quiz.passScore}/10`"></p>
+                <button @click="startQuiz(quiz)" class="mt-3 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">Bắt đầu / Tiếp tục quiz</button>
+              </div>
+            </template>
+          </div>
+          <p x-show="!courseQuizzes.length" class="text-xs text-slate-400 p-4">Khóa học chưa có bài kiểm tra.</p>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lesson content player. -->
+  <div x-show="showLessonPlayer" x-cloak class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80" role="dialog" aria-modal="true" aria-label="Trình phát bài học">
+    <div class="max-w-3xl w-full max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-2xl">
+      <div class="flex items-start justify-between gap-4">
+        <div><p class="text-xs font-bold text-brand-600">BÀI HỌC</p><h3 class="text-xl font-extrabold" x-text="activeLesson?.title"></h3></div>
+        <button @click="showLessonPlayer=false" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Đóng bài học">&times;</button>
+      </div>
+      <div x-show="lessonLoading" class="py-14 text-center text-sm text-slate-500" role="status">Đang tải nội dung bài học...</div>
+      <div x-show="!lessonLoading" class="mt-5 space-y-5">
+        <template x-if="lessonVideoEmbedUrl">
+          <div class="aspect-video overflow-hidden rounded-2xl bg-black">
+            <iframe class="w-full h-full" :src="lessonVideoEmbedUrl" title="Video bài học" loading="lazy" allow="accelerometer; autoplay; encrypted-media; picture-in-picture" sandbox="allow-scripts allow-same-origin allow-presentation" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+          </div>
+        </template>
+        <a x-show="activeLesson?.videoUrl && !lessonVideoEmbedUrl" :href="safeExternalUrl(activeLesson?.videoUrl)" target="_blank" rel="noopener noreferrer" class="inline-flex px-4 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-xs font-bold text-brand-600">Mở video trong tab an toàn ↗</a>
+        <div class="p-5 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm leading-7 whitespace-pre-line text-slate-700 dark:text-slate-200" x-text="activeLesson?.content || 'Nội dung bài học đang được giảng viên cập nhật.'"></div>
+        <section x-show="(activeLesson?.resources || []).length">
+          <h4 class="text-sm font-bold mb-2">Tài liệu đính kèm</h4>
+          <template x-for="resource in (activeLesson?.resources || [])" :key="resource.id">
+            <button @click="openLessonResource(resource)" class="mr-2 mb-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold hover:border-brand-500" x-text="resource.title || 'Tải tài liệu'"></button>
+          </template>
+        </section>
+        <div class="flex justify-end">
+          <button @click="completeActiveLesson()" :disabled="activeLesson && isLessonComplete(activeLesson.id)" class="px-5 py-2.5 rounded-xl bg-emerald-600 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white text-xs font-bold" x-text="activeLesson && isLessonComplete(activeLesson.id) ? '✓ Đã hoàn thành' : 'Đánh dấu hoàn thành'"></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quiz player and result view. -->
+  <div x-show="showQuizPlayer" x-cloak class="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/85" role="dialog" aria-modal="true" aria-label="Làm bài kiểm tra">
+    <div class="max-w-3xl w-full max-h-[92vh] overflow-y-auto bg-white dark:bg-slate-900 p-6 rounded-3xl shadow-2xl">
+      <div class="flex items-start justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-4">
+        <div><p class="text-xs font-bold text-indigo-600">BÀI KIỂM TRA</p><h3 class="text-xl font-extrabold" x-text="activeQuiz?.title"></h3></div>
+        <div class="flex items-center gap-3"><span x-show="!quizResult" class="font-mono text-xs font-bold text-rose-600" x-text="formatQuizTime(quizSecondsLeft)"></span><button @click="closeQuizPlayer()" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Đóng quiz">&times;</button></div>
+      </div>
+      <div x-show="quizLoading" class="py-16 text-center text-sm text-slate-500" role="status">Đang chuẩn bị bài kiểm tra...</div>
+      <div x-show="!quizLoading && quizResult" class="py-8 text-center">
+        <p class="text-sm text-slate-500">Kết quả của bạn</p>
+        <p class="text-6xl font-black mt-2" :class="quizResult?.passed ? 'text-emerald-600' : 'text-rose-600'" x-text="(quizResult?.score ?? 0) + '/10'"></p>
+        <p class="font-bold mt-3" x-text="quizResult?.passed ? 'Đạt yêu cầu' : 'Chưa đạt yêu cầu'"></p>
+        <p class="text-xs text-slate-500 mt-1" x-text="`${quizResult?.correct_count || 0}/${quizResult?.total_questions || 0} câu đúng`"></p>
+      </div>
+      <div x-show="!quizLoading && !quizResult" class="space-y-5 mt-5">
+        <template x-for="(question, index) in (activeQuiz?.questions || [])" :key="question.id">
+          <fieldset class="p-4 rounded-2xl border border-slate-200 dark:border-slate-700">
+            <legend class="px-2 text-sm font-bold" x-text="`${index + 1}. ${question.prompt}`"></legend>
+            <div class="grid sm:grid-cols-2 gap-2 mt-2">
+              <template x-for="option in question.options" :key="option.key">
+                <label class="flex items-start gap-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800 cursor-pointer hover:ring-1 hover:ring-brand-500">
+                  <input type="radio" :name="'quiz-' + question.id" :value="option.key" x-model="quizAnswers[question.id]" class="mt-0.5">
+                  <span class="text-xs"><strong x-text="option.key + '. '"></strong><span x-text="option.label"></span></span>
+                </label>
+              </template>
+            </div>
+          </fieldset>
+        </template>
+        <div class="sticky bottom-0 flex justify-end gap-2 py-3 bg-white dark:bg-slate-900">
+          <button @click="saveQuizAnswers()" class="px-4 py-2.5 rounded-xl bg-slate-200 dark:bg-slate-700 text-xs font-bold">Lưu bài nháp</button>
+          <button @click="submitQuiz()" class="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold">Nộp bài</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Durable in-app notifications (LRN-04). -->
   <div x-show="token" x-cloak class="fixed right-4 bottom-4 z-40">
     <div x-show="showNotifications" class="absolute right-0 bottom-14 w-80 max-h-96 overflow-y-auto p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl">
@@ -1426,6 +1557,24 @@
         publicCourses: [],
         selectedPublicCourse: null,
         showCourseDetail: false,
+        learningCourse: null,
+        learningProgress: { completedLessonIds: [], completedLessons: 0, totalLessons: 0, percent: 0 },
+        courseQuizzes: [],
+        showLearningCenter: false,
+        learningLoading: false,
+        learningError: '',
+        activeLesson: null,
+        showLessonPlayer: false,
+        lessonLoading: false,
+        lessonVideoEmbedUrl: '',
+        activeQuiz: null,
+        activeQuizAttempt: null,
+        quizAnswers: {},
+        quizResult: null,
+        showQuizPlayer: false,
+        quizLoading: false,
+        quizSecondsLeft: 0,
+        quizTimer: null,
         notificationInbox: { items: [], unread: 0 },
         showNotifications: false,
         courseSearchQuery: '',
@@ -1646,6 +1795,199 @@
           }
         },
 
+        async openLearningCourse(course) {
+          this.showLearningCenter = true;
+          this.learningLoading = true;
+          this.learningError = '';
+          this.learningCourse = { id: course.id, title: course.title, curriculum: [] };
+          const [detail, progress, quizzes] = await Promise.all([
+            this.api(`/api/public/courses/${course.id}`),
+            this.api(`/api/courses/${course.id}/progress`),
+            this.api(`/api/courses/${course.id}/quizzes`)
+          ]);
+          if (!detail.ok || !progress.ok) {
+            const failed = [detail, progress].find(item => !item.ok);
+            this.learningError = this.formatErrorMessage(failed?.data?.error);
+            this.learningLoading = false;
+            return false;
+          } else {
+            this.learningCourse = detail.data;
+            this.learningProgress = progress.data;
+            this.courseQuizzes = quizzes.ok ? (quizzes.data.items || []) : [];
+            if (!quizzes.ok) {
+              this.notify('Bài học đã tải, nhưng danh sách quiz tạm thời chưa khả dụng.', 'warning');
+            }
+          }
+          this.learningLoading = false;
+          return true;
+        },
+
+        async continueLearning(course) {
+          const loaded = await this.openLearningCourse(course);
+          if (loaded && course.nextLessonId) {
+            await this.openLesson(course.id, course.nextLessonId);
+          }
+        },
+
+        closeLearningCenter() {
+          if (this.showLessonPlayer || this.showQuizPlayer) return;
+          this.showLearningCenter = false;
+        },
+
+        isLessonComplete(lessonId) {
+          return (this.learningProgress.completedLessonIds || []).includes(lessonId);
+        },
+
+        async openLesson(courseId, lessonId) {
+          this.showLessonPlayer = true;
+          this.lessonLoading = true;
+          this.activeLesson = { id: lessonId, title: 'Đang tải bài học...' };
+          this.lessonVideoEmbedUrl = '';
+          const res = await this.api(`/api/courses/${courseId}/lessons/${lessonId}`);
+          if (res.ok) {
+            this.activeLesson = res.data;
+            this.lessonVideoEmbedUrl = this.youtubeEmbedUrl(res.data.videoUrl);
+          } else {
+            this.showLessonPlayer = false;
+            this.notify('Không thể mở bài học: ' + this.formatErrorMessage(res.data.error), 'error');
+          }
+          this.lessonLoading = false;
+        },
+
+        youtubeEmbedUrl(value) {
+          if (!value) return '';
+          try {
+            const url = new URL(value);
+            let videoId = '';
+            if (url.hostname === 'youtu.be') videoId = url.pathname.slice(1);
+            if (['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(url.hostname)) {
+              videoId = url.searchParams.get('v') || (url.pathname.startsWith('/embed/') ? url.pathname.split('/')[2] : '');
+            }
+            return /^[A-Za-z0-9_-]{6,20}$/.test(videoId) ? `https://www.youtube-nocookie.com/embed/${videoId}` : '';
+          } catch (e) {
+            return '';
+          }
+        },
+
+        safeExternalUrl(value) {
+          try {
+            const url = new URL(value);
+            return ['http:', 'https:'].includes(url.protocol) ? url.href : '#';
+          } catch (e) {
+            return '#';
+          }
+        },
+
+        async openLessonResource(resource) {
+          const resourceUrl = String(resource.resourceUrl || '');
+          if (resourceUrl.startsWith('internal://')) {
+            const response = await fetch(`/api/resources/${resource.id}/download`, {
+              headers: { 'Authorization': `Bearer ${this.token}` }
+            });
+            if (!response.ok) {
+              this.notify('Không thể tải tài liệu.', 'error');
+              return;
+            }
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(await response.blob());
+            link.download = resource.title || 'lesson-resource';
+            link.click();
+            URL.revokeObjectURL(link.href);
+            return;
+          }
+          const safeUrl = this.safeExternalUrl(resourceUrl);
+          if (safeUrl === '#') {
+            this.notify('Liên kết tài liệu không hợp lệ.', 'error');
+            return;
+          }
+          window.open(safeUrl, '_blank', 'noopener,noreferrer');
+        },
+
+        async completeActiveLesson() {
+          if (!this.learningCourse || !this.activeLesson) return;
+          const progress = await this.completeLesson(this.learningCourse.id, this.activeLesson.id);
+          if (progress?.percent >= 100) {
+            this.showLessonPlayer = false;
+            this.activeLesson = null;
+            this.notify('Bạn đã hoàn thành khóa học. Hãy chọn bài kiểm tra bên dưới.', 'success');
+          }
+        },
+
+        async startQuiz(quiz) {
+          this.showQuizPlayer = true;
+          this.quizLoading = true;
+          this.activeQuiz = quiz;
+          this.quizAnswers = {};
+          this.quizResult = null;
+          const res = await this.api(`/quizzes/${quiz.id}/attempts`, { method: 'POST' });
+          if (!res.ok) {
+            this.showQuizPlayer = false;
+            this.notify('Không thể bắt đầu quiz: ' + this.formatErrorMessage(res.data.error), 'error');
+            return;
+          }
+          this.activeQuizAttempt = res.data;
+          this.quizAnswers = { ...(res.data.answers || {}) };
+          this.startQuizTimer(res.data.expires_at);
+          this.quizLoading = false;
+        },
+
+        startQuizTimer(expiresAt) {
+          if (this.quizTimer) clearInterval(this.quizTimer);
+          const update = () => {
+            this.quizSecondsLeft = Math.max(0, Math.ceil((new Date(expiresAt).getTime() - Date.now()) / 1000));
+            if (this.quizSecondsLeft === 0 && this.quizTimer) {
+              clearInterval(this.quizTimer);
+              this.quizTimer = null;
+              this.notify('Thời gian làm quiz đã hết.', 'warning');
+            }
+          };
+          update();
+          this.quizTimer = setInterval(update, 1000);
+        },
+
+        formatQuizTime(seconds) {
+          const value = Math.max(0, Number(seconds) || 0);
+          const minutes = Math.floor(value / 60).toString().padStart(2, '0');
+          const remainder = Math.floor(value % 60).toString().padStart(2, '0');
+          return `${minutes}:${remainder}`;
+        },
+
+        async saveQuizAnswers(showNotice = true) {
+          if (!this.activeQuiz || !this.activeQuizAttempt) return false;
+          const res = await this.api(`/quizzes/${this.activeQuiz.id}/attempts/${this.activeQuizAttempt.id}/answers`, {
+            method: 'PUT',
+            body: JSON.stringify({ answers: this.quizAnswers })
+          });
+          if (res.ok) {
+            this.activeQuizAttempt = res.data;
+            if (showNotice) this.notify('Đã lưu bài làm.', 'success');
+            return true;
+          }
+          this.notify('Không thể lưu quiz: ' + this.formatErrorMessage(res.data.error), 'error');
+          return false;
+        },
+
+        async submitQuiz() {
+          if (!this.activeQuiz || !this.activeQuizAttempt) return;
+          if (!window.confirm('Nộp bài ngay? Bạn sẽ không thể sửa đáp án sau khi nộp.')) return;
+          if (!(await this.saveQuizAnswers(false))) return;
+          const res = await this.api(`/quizzes/${this.activeQuiz.id}/attempts/${this.activeQuizAttempt.id}/submit`, { method: 'POST' });
+          if (res.ok) {
+            this.quizResult = res.data.attempt;
+            if (this.quizTimer) clearInterval(this.quizTimer);
+            this.quizTimer = null;
+            this.notify('Đã nộp bài kiểm tra.', 'success');
+          } else {
+            this.notify('Không thể nộp quiz: ' + this.formatErrorMessage(res.data.error), 'error');
+          }
+        },
+
+        closeQuizPlayer() {
+          if (this.quizTimer) clearInterval(this.quizTimer);
+          this.quizTimer = null;
+          this.showQuizPlayer = false;
+        },
+
         async loadMe() {
           const res = await this.api('/me');
           if (res.ok) {
@@ -1845,11 +2187,14 @@
         async completeLesson(courseId, lessonId) {
           const res = await this.api(`/api/courses/${courseId}/lessons/${lessonId}/progress`, { method: 'PUT' });
           if (res.ok) {
+            if (this.learningCourse?.id === courseId) this.learningProgress = res.data;
             this.notify(`Đã hoàn thành bài học ${lessonId}! Tiến độ: ${res.data.percent}%`, 'success');
             await this.loadDashboardData();
             await this.loadNotifications();
+            return res.data;
           } else {
             this.notify('Lỗi: ' + this.formatErrorMessage(res.data.error), 'error');
+            return null;
           }
         },
 

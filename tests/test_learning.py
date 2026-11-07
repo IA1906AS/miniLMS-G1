@@ -47,6 +47,8 @@ def test_free_enrollment_lesson_access_progress_notification_and_certificate(cli
     lesson = client.get("/api/courses/c3/lessons/c3-l1", headers=student)
     assert lesson.status_code == 200
     assert lesson.get_json()["title"]
+    assert lesson.get_json()["content"]
+    assert lesson.get_json()["contentType"] == "TEXT"
 
     for lesson_id in ("c3-l1", "c3-l2", "c3-l3", "c3-l4"):
         completed = client.put(f"/api/courses/c3/lessons/{lesson_id}/progress", headers=student)

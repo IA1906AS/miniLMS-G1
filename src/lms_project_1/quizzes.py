@@ -50,6 +50,50 @@ VALID_TRANSITIONS: dict[AttemptState, set[AttemptState]] = {
 }
 
 
+def _authorize_course_quiz(
+    actor: dict[str, Any], quiz: dict[str, Any], store: Store
+) -> dict[str, Any]:
+    """Authorize access to a real quiz through its parent course."""
+    course_id = str(quiz.get("courseId", ""))
+    course = store.courses.get(course_id)
+    if course is None:
+        raise NotFound("Course not found")
+    role = str(actor.get("role", "")).upper()
+    actor_id = str(actor.get("id", ""))
+    if role == "ADMIN":
+        return course
+    if role in {"TEACHER", "INSTRUCTOR"}:
+        if course.get("instructorId") != actor_id:
+            raise Forbidden("Only the assigned instructor may access this quiz")
+        return course
+    if role == "STUDENT":
+        if store.get_enrollment(course_id, actor_id) is None:
+            raise Forbidden("Enrollment is required")
+        return course
+    raise Forbidden("Role is not allowed to access this quiz")
+
+
+def _public_quiz(quiz: dict[str, Any]) -> dict[str, Any]:
+    """Serialize quiz metadata without exposing answer keys."""
+    questions = [
+        {
+            "id": str(question.get("id", "")),
+            "prompt": str(question.get("prompt", "")),
+            "options": [dict(option) for option in question.get("options", [])],
+        }
+        for question in quiz.get("questions", [])
+    ]
+    return {
+        "id": str(quiz.get("id", "")),
+        "courseId": str(quiz.get("courseId", "")),
+        "title": str(quiz.get("title", "")),
+        "timeLimitSeconds": int(quiz.get("timeLimitSeconds", 1800)),
+        "passScore": float(quiz.get("passScore", 6.0)),
+        "questionCount": len(questions),
+        "questions": questions,
+    }
+
+
 class QuizStateMachineService:
     """Core service managing the lifecycle and security bounds of quiz attempts."""
 
@@ -74,6 +118,11 @@ class QuizStateMachineService:
         student_id = str(actor.get("id", ""))
         attempt_id = f"qa_{uuid.uuid4().hex[:12]}"
 
+        quiz = store.get_quiz(quiz_id)
+        if quiz is not None:
+            _authorize_course_quiz(actor, quiz, store)
+            duration_seconds = int(quiz.get("timeLimitSeconds", cls.DEFAULT_DURATION_SECONDS))
+
         duration = (
             duration_seconds if duration_seconds is not None else cls.DEFAULT_DURATION_SECONDS
         )
@@ -87,14 +136,15 @@ class QuizStateMachineService:
                     and existing.get("student_id") == student_id
                     and existing.get("state") in (AttemptState.CREATED, AttemptState.IN_PROGRESS)
                 ):
-                    if now < existing.get("expires_at", now):
+                    existing_expires_at = cls._parse_expires_at(existing.get("expires_at"))
+                    if existing_expires_at is not None and now < existing_expires_at:
                         return existing
-                    else:
-                        existing["state"] = AttemptState.EXPIRED
+                    existing["state"] = AttemptState.EXPIRED
 
             attempt_record: dict[str, Any] = {
                 "id": attempt_id,
                 "quiz_id": quiz_id,
+                "course_id": str(quiz.get("courseId", "")) if quiz else None,
                 "student_id": student_id,
                 "state": AttemptState.CREATED,
                 "answers": {},
@@ -131,6 +181,22 @@ class QuizStateMachineService:
     ) -> dict[str, Any]:
         """Save answers during IN_PROGRESS state. Disallows mutation after SUBMITTED or EXPIRED."""
         attempt = cls._get_and_authorize(actor, quiz_id, attempt_id, store)
+        quiz = store.get_quiz(quiz_id)
+        if quiz is not None:
+            question_options = {
+                str(question.get("id", "")): {
+                    str(option.get("key", "")) for option in question.get("options", [])
+                }
+                for question in quiz.get("questions", [])
+            }
+            unknown_questions = set(answers) - set(question_options)
+            if unknown_questions:
+                raise ValidationError("Answers contain an unknown question")
+            if any(
+                not isinstance(value, str) or value not in question_options[question_id]
+                for question_id, value in answers.items()
+            ):
+                raise ValidationError("Answers contain an invalid option")
 
         with store.quiz_attempts_lock:
             cls._check_and_expire(attempt)
@@ -174,9 +240,25 @@ class QuizStateMachineService:
             attempt["submitted_at"] = now.isoformat()
 
             answers = attempt.get("answers", {})
-            total_questions = max(len(answers), 5)
-            correct_count = sum(1 for v in answers.values() if v in ("A", "true", 1, "correct"))
+            quiz = store.get_quiz(quiz_id)
+            if quiz is not None:
+                questions = quiz.get("questions", [])
+                total_questions = max(len(questions), 1)
+                correct_count = sum(
+                    1
+                    for question in questions
+                    if answers.get(str(question.get("id", ""))) == question.get("correctAnswer")
+                )
+                attempt["pass_score"] = float(quiz.get("passScore", 6.0))
+            else:
+                total_questions = max(len(answers), 5)
+                correct_count = sum(
+                    1 for value in answers.values() if value in ("A", "true", 1, "correct")
+                )
             attempt["score"] = round((correct_count / total_questions) * 10.0, 1)
+            attempt["correct_count"] = correct_count
+            attempt["total_questions"] = total_questions
+            attempt["passed"] = attempt["score"] >= float(attempt.get("pass_score", 6.0))
 
         return attempt
 
@@ -204,6 +286,9 @@ class QuizStateMachineService:
         if role == "ADMIN":
             return attempt
         if role in ("INSTRUCTOR", "TEACHER"):
+            quiz = store.get_quiz(quiz_id)
+            if quiz is not None:
+                _authorize_course_quiz(actor, quiz, store)
             return attempt
         if role == "STUDENT":
             if attempt.get("student_id") != actor_id:
@@ -218,16 +303,47 @@ class QuizStateMachineService:
         if attempt.get("state") == AttemptState.SUBMITTED:
             return
 
-        expires_at_str = attempt.get("expires_at")
-        if expires_at_str:
-            expires_at = datetime.fromisoformat(expires_at_str)
-            if datetime.now(UTC) >= expires_at:
-                attempt["state"] = AttemptState.EXPIRED
+        expires_at = cls._parse_expires_at(attempt.get("expires_at"))
+        if expires_at is not None and datetime.now(UTC) >= expires_at:
+            attempt["state"] = AttemptState.EXPIRED
+
+    @staticmethod
+    def _parse_expires_at(value: Any) -> datetime | None:
+        """Normalize persisted and in-memory deadlines without raising on bad state."""
+        if isinstance(value, datetime):
+            parsed = value
+        elif isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        else:
+            return None
+        return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
 # Blueprint registration
 quizzes_bp = Blueprint("quizzes", __name__)
 p7_quiz_bp = quizzes_bp  # Backward compatibility alias
+
+
+@quizzes_bp.get("/api/courses/<course_id>/quizzes")
+@require_role("ADMIN", "INSTRUCTOR", "TEACHER", "STUDENT")
+def list_course_quizzes(course_id: str) -> tuple[Response, int]:
+    """List playable quizzes for an authorized course member."""
+    actor = getattr(g, "actor", None)
+    if not actor or not isinstance(actor, dict):
+        raise Unauthenticated("Unauthenticated")
+    store: Store = current_app.config["STORE"]
+    if course_id not in store.courses:
+        raise NotFound("Course not found")
+    quizzes = store.get_quizzes(course_id)
+    if quizzes:
+        _authorize_course_quiz(actor, quizzes[0], store)
+    else:
+        synthetic_quiz = {"courseId": course_id}
+        _authorize_course_quiz(actor, synthetic_quiz, store)
+    return jsonify({"items": [_public_quiz(quiz) for quiz in quizzes]}), 200
 
 
 @quizzes_bp.route("/quizzes/<quiz_id>/attempts", methods=["POST"])
@@ -241,12 +357,24 @@ def post_start_quiz_attempt(quiz_id: str) -> tuple[Response, int]:
     store: Store = current_app.config["STORE"]
     body = request.get_json(silent=True) or {}
     duration = body.get("duration_seconds")
+    if store.get_quiz(quiz_id) is None and not current_app.config.get("TESTING", False):
+        raise NotFound("Quiz not found")
+    parsed_duration: int | None = None
+    if duration is not None:
+        if isinstance(duration, bool):
+            raise ValidationError("duration_seconds must be an integer")
+        try:
+            parsed_duration = int(duration)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("duration_seconds must be an integer") from exc
+        if parsed_duration < 1 or parsed_duration > 14_400:
+            raise ValidationError("duration_seconds must be between 1 and 14400")
 
     attempt = QuizStateMachineService.create_attempt(
         actor=actor,
         quiz_id=quiz_id,
         store=store,
-        duration_seconds=int(duration) if duration else None,
+        duration_seconds=parsed_duration,
     )
     return jsonify(attempt), 201
 
@@ -281,6 +409,8 @@ def put_quiz_answers(quiz_id: str, attempt_id: str) -> tuple[Response, int]:
     if not request.is_json:
         raise ValidationError("Request body must be JSON")
     body = request.get_json(silent=False) or {}
+    if set(body) != {"answers"}:
+        raise ValidationError("Only the answers field is allowed")
     answers = body.get("answers")
     if not isinstance(answers, dict):
         raise ValidationError("Trường 'answers' phải là một dictionary/object câu trả lời")

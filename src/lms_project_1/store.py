@@ -30,11 +30,77 @@ from lms_project_1.models import (
     Notification,
     OAuthIdentity,
     PasswordResetToken,
+    Quiz,
     RefreshSession,
     RevokedAccessToken,
     Submission,
     User,
 )
+
+
+def _quiz_questions_for_course(course_id: str) -> list[dict[str, Any]]:
+    """Return a small server-side question bank without exposing its answer key."""
+    topic = {
+        "c1": "Flask và REST API",
+        "c2": "PostgreSQL",
+        "c3": "an toàn ứng dụng web",
+    }.get(course_id.lower(), "nền tảng web")
+    rows = [
+        (
+            "q1",
+            f"Cách an toàn để đưa dữ liệu người dùng vào truy vấn {topic} là gì?",
+            ("Truyền tham số", "Nối chuỗi", "Tắt validation", "Dùng quyền cao nhất"),
+            "A",
+        ),
+        (
+            "q2",
+            "Mật khẩu nên được lưu theo cách nào?",
+            ("Plain text", "Hash chậm có salt", "Base64", "Khóa trong source"),
+            "B",
+        ),
+        (
+            "q3",
+            "Mã HTTP nào phù hợp khi đã xác thực nhưng không đủ quyền?",
+            ("200", "401", "403", "500"),
+            "C",
+        ),
+        (
+            "q4",
+            "Dữ liệu nào tuyệt đối không được ghi vào audit log?",
+            ("Loại sự kiện", "Thời gian", "Mã người dùng", "Bearer token"),
+            "D",
+        ),
+        (
+            "q5",
+            "Biện pháp chính chống IDOR/BOLA là gì?",
+            ("Kiểm tra quyền trên từng tài nguyên", "Ẩn nút", "Dùng ID dài", "Đổi URL"),
+            "A",
+        ),
+    ]
+    return [
+        {
+            "id": question_id,
+            "prompt": prompt,
+            "options": [
+                {"key": key, "label": label}
+                for key, label in zip(("A", "B", "C", "D"), options, strict=True)
+            ],
+            "correctAnswer": correct_answer,
+        }
+        for question_id, prompt, options, correct_answer in rows
+    ]
+
+
+def _default_lesson_content(title: str) -> str:
+    """Provide useful starter content when an imported lesson only has a title."""
+    return (
+        "Mục tiêu bài học\n"
+        f"- Hiểu các khái niệm trọng tâm của {title}.\n"
+        "- Áp dụng kiến thức qua ví dụ và bài thực hành.\n\n"
+        "Nội dung\n"
+        "Đọc phần giới thiệu, ghi lại các khái niệm chính và hoàn thành bài thực hành "
+        "trước khi đánh dấu bài học là hoàn thành."
+    )
 
 
 class Store:
@@ -156,7 +222,7 @@ class Store:
                         "courseId": lesson_row.course_id,
                         "chapterId": lesson_row.chapter_id,
                         "title": lesson_row.title,
-                        "content": lesson_row.content,
+                        "content": lesson_row.content or _default_lesson_content(lesson_row.title),
                         "contentType": lesson_row.content_type,
                         "videoUrl": lesson_row.video_url,
                         "orderIndex": lesson_row.order_index,
@@ -202,6 +268,15 @@ class Store:
                 "courseTitle": course.get("title", ""),
                 "verificationCode": certificate_row.verification_code,
                 "issuedAt": certificate_row.issued_at.isoformat(),
+            }
+        for quiz_row in self.db_session.execute(select(Quiz)).scalars():
+            self.quizzes[quiz_row.id] = {
+                "id": quiz_row.id,
+                "courseId": quiz_row.course_id,
+                "title": quiz_row.title,
+                "timeLimitSeconds": quiz_row.time_limit_seconds,
+                "questions": _quiz_questions_for_course(quiz_row.course_id),
+                "passScore": 6.0,
             }
 
     def _resolve_seed_path(self, seed_path: str | Path | None) -> Path:
@@ -272,6 +347,26 @@ class Store:
                 {"id": f"{course_id}-l3", "title": "Bài 3: Kiến thức cốt lõi"},
                 {"id": f"{course_id}-l4", "title": "Bài 4: Thực hành & Đồ án"},
             ]
+            lessons: list[dict[str, Any]] = []
+            for index, raw_lesson in enumerate(c.get("lessons", default_lessons), start=1):
+                lesson = dict(raw_lesson)
+                lesson.setdefault("courseId", course_id)
+                lesson.setdefault("chapterId", None)
+                lesson.setdefault("orderIndex", index)
+                lesson.setdefault("contentType", "TEXT")
+                lesson.setdefault("videoUrl", None)
+                lesson.setdefault(
+                    "content",
+                    (
+                        "Mục tiêu bài học\n"
+                        f"- Hiểu các khái niệm trọng tâm của {lesson.get('title', 'bài học')}.\n"
+                        "- Áp dụng kiến thức qua ví dụ và bài thực hành.\n\n"
+                        "Nội dung\n"
+                        "Đọc phần giới thiệu, ghi lại các khái niệm chính và hoàn thành "
+                        "bài thực hành trước khi đánh dấu bài học là hoàn thành."
+                    ),
+                )
+                lessons.append(lesson)
             course_record: dict[str, Any] = {
                 "id": course_id,
                 "title": str(c.get("title", "")),
@@ -288,7 +383,7 @@ class Store:
                 "status": str(c.get("status", "PUBLISHED")).upper(),
                 "isVisible": bool(c.get("isVisible", True)),
                 "rejectionReason": None,
-                "lessons": list(c.get("lessons", default_lessons)),
+                "lessons": lessons,
             }
             self.courses[course_record["id"]] = course_record
 
@@ -354,12 +449,16 @@ class Store:
         raw_quizzes = data.get("quizzes", [])
         for q in raw_quizzes:
             qid = str(q["id"])
+            course_id = str(q.get("courseId", ""))
+            duration_minutes = int(q.get("durationMinutes", 30))
+            questions = q.get("questions") or _quiz_questions_for_course(course_id)
             self.quizzes[qid] = {
                 "id": qid,
-                "courseId": str(q.get("courseId", "")),
+                "courseId": course_id,
                 "title": str(q.get("title", "")),
-                "timeLimitSeconds": int(q.get("timeLimitSeconds", 1800)),
-                "questions": q.get("questions", []),
+                "timeLimitSeconds": int(q.get("timeLimitSeconds", duration_minutes * 60)),
+                "questions": questions,
+                "passScore": float(q.get("passScore", 6.0)),
             }
 
     def get_class(self, class_id: str) -> dict[str, Any] | None:
