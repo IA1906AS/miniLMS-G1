@@ -77,7 +77,7 @@ README_CODEX_KIT.md
 KIT_MANIFEST.json
 SHA256SUMS.txt
 tests_codex_kit/
-tools/
+/tools/
 scripts/
 .gemini/
 .claude/
