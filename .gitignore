@@ -77,8 +77,7 @@ README_CODEX_KIT.md
 KIT_MANIFEST.json
 SHA256SUMS.txt
 tests_codex_kit/
-tools/codex_kit*/
-tools/validate_codex_kit.py
+tools/
 scripts/
 .gemini/
 .claude/
