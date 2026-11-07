@@ -1,4 +1,4 @@
-"""Comprehensive test suite for Defensive Pattern #5: Circuit Breaker (C5-01 to C5-08)."""
+"""Plagiarism provider circuit-breaker integration and security tests."""
 
 from __future__ import annotations
 

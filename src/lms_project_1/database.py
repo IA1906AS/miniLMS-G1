@@ -12,7 +12,16 @@ from flask import Flask
 from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import Session, scoped_session, sessionmaker
 
-from lms_project_1.models import Assignment, Base, Course, Enrollment, Submission, User
+from lms_project_1.models import (
+    Assignment,
+    Base,
+    Course,
+    CourseCategory,
+    Enrollment,
+    Lesson,
+    Submission,
+    User,
+)
 
 DEFAULT_POSTGRES_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/lms_db"
 
@@ -115,14 +124,31 @@ def seed_db(
         )
         session.add(user)
 
-    # 2. Seed courses
+    # 2. Seed categories and published demo courses
+    session.add(CourseCategory(id="cat-general", name="General", slug="general"))
     for c in data.get("courses", []):
         course = Course(
             id=str(c["id"]),
             title=str(c.get("title", "")),
             instructor_id=str(c.get("instructorId", "")),
+            category_id="cat-general",
+            description=str(c.get("description", "")),
+            thumbnail=str(c.get("thumbnail", "")),
+            duration_hours=int(c.get("durationHours", 30)),
+            price=float(c.get("price", 0.0)),
+            status="PUBLISHED",
+            is_visible=True,
         )
         session.add(course)
+        for index, lesson_data in enumerate(c.get("lessons", []), start=1):
+            session.add(
+                Lesson(
+                    id=str(lesson_data["id"]),
+                    course_id=str(c["id"]),
+                    title=str(lesson_data.get("title", "")),
+                    order_index=index,
+                )
+            )
 
     # 3. Seed enrollments
     for e in data.get("enrollments", []):

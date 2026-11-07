@@ -13,7 +13,13 @@ from lms_project_1 import schemas, services
 from lms_project_1.audit import log_grade_change, setup_audit_logging
 from lms_project_1.auth import BruteForceTracker, auth_bp
 from lms_project_1.database import init_db
-from lms_project_1.errors import NotFound, Unauthenticated, ValidationError, register_error_handlers
+from lms_project_1.errors import (
+    Conflict,
+    NotFound,
+    Unauthenticated,
+    ValidationError,
+    register_error_handlers,
+)
 from lms_project_1.gate import setup_gate
 from lms_project_1.guards import require_role
 from lms_project_1.store import Store
@@ -75,7 +81,9 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     app.register_blueprint(auth_bp)
 
     # 7b. Register Domain Feature Blueprints
+    from lms_project_1.course_management import course_bp
     from lms_project_1.dashboard import dashboard_bp
+    from lms_project_1.learning import learning_bp
     from lms_project_1.outbox import outbox_bp
     from lms_project_1.plagiarism import plagiarism_bp
     from lms_project_1.quizzes import quizzes_bp
@@ -83,6 +91,8 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     from lms_project_1.reservations import reservations_bp
 
     app.register_blueprint(dashboard_bp)
+    app.register_blueprint(learning_bp)
+    app.register_blueprint(course_bp)
     app.register_blueprint(plagiarism_bp)
     app.register_blueprint(quizzes_bp)
     app.register_blueprint(outbox_bp)
@@ -604,8 +614,29 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
 
     @app.route("/api/public/courses", methods=["GET"])
     def get_public_courses() -> tuple[Response, int]:
+        query = request.args.get("q", "").strip().casefold()
+        category = request.args.get("category", "").strip()
+        try:
+            page = max(1, int(request.args.get("page", 1)))
+            per_page = min(50, max(1, int(request.args.get("per_page", 12))))
+        except ValueError as exc:
+            raise ValidationError("Invalid pagination") from exc
         courses_list = []
         for cid, c in store.courses.items():
+            if c.get("status") != "PUBLISHED" or not c.get("isVisible", False):
+                continue
+            category_item = store.course_categories.get(str(c.get("categoryId", "")))
+            if (
+                query
+                and query not in str(c.get("title", "")).casefold()
+                and query not in str(c.get("description", "")).casefold()
+            ):
+                continue
+            if category and category not in {
+                str(c.get("categoryId", "")),
+                str((category_item or {}).get("slug", "")),
+            }:
+                continue
             inst = store.get_user_by_id(c.get("instructorId", ""))
             inst_email = inst.get("email", "") if inst else ""
             inst_name = inst.get("fullName") or inst.get("full_name") or "" if inst else ""
@@ -624,9 +655,24 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
                     "thumbnail": c.get("thumbnail", ""),
                     "durationHours": c.get("durationHours", 30),
                     "isFeatured": c.get("isFeatured", False),
+                    "category": category_item,
+                    "price": c.get("price", 0.0),
                 }
             )
-        return jsonify(courses_list), 200
+        courses_list.sort(key=lambda item: (not item["isFeatured"], item["title"], item["id"]))
+        total = len(courses_list)
+        start = (page - 1) * per_page
+        return jsonify(
+            {
+                "items": courses_list[start : start + per_page],
+                "pagination": {
+                    "page": page,
+                    "perPage": per_page,
+                    "total": total,
+                    "pages": (total + per_page - 1) // per_page,
+                },
+            }
+        ), 200
 
     @app.route("/api/admin/audit-logs", methods=["GET"])
     @require_role("ADMIN", "admin")
@@ -640,16 +686,72 @@ def create_app(config: dict[str, Any] | None = None) -> Flask:
     @app.route("/api/admin/users", methods=["GET"])
     @require_role("ADMIN", "admin")
     def get_admin_users() -> tuple[Response, int]:
-        users_list = [
+        query = request.args.get("q", "").strip()
+        role = request.args.get("role", "").strip()
+        status = request.args.get("status", "").strip()
+        if len(query) > 100:
+            raise ValidationError("'q' cannot exceed 100 characters")
+        if role.lower() not in {"", "guest", "student", "teacher", "instructor", "admin"}:
+            raise ValidationError("Invalid role filter")
+        if status.lower() not in {"", "active", "locked", "deleted"}:
+            raise ValidationError("Invalid status filter")
+        try:
+            page = int(request.args.get("page", "1"))
+            per_page = int(request.args.get("per_page", "20"))
+        except ValueError as exc:
+            raise ValidationError("Pagination values must be integers") from exc
+        if page < 1 or per_page < 1 or per_page > 100:
+            raise ValidationError("Pagination is out of range")
+
+        users_list = store.list_users(query=query, role=role, status=status)
+        total = len(users_list)
+        start = (page - 1) * per_page
+        return jsonify(
             {
-                "id": u["id"],
-                "email": u["email"],
-                "role": u.get("role", "STUDENT"),
-                "fullName": u.get("fullName") or u.get("email", ""),
+                "items": users_list[start : start + per_page],
+                "pagination": {
+                    "page": page,
+                    "perPage": per_page,
+                    "total": total,
+                    "pages": (total + per_page - 1) // per_page,
+                },
             }
-            for u in store.users.values()
-        ]
-        return jsonify(users_list), 200
+        ), 200
+
+    @app.route("/api/admin/users/<user_id>/status", methods=["PATCH"])
+    @require_role("ADMIN", "admin")
+    def patch_admin_user_status(user_id: str) -> tuple[Response, int]:
+        actor = getattr(g, "actor", {})
+        if str(actor.get("id")) == user_id:
+            raise Conflict("Administrators cannot lock their own account")
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        body = request.get_json(silent=False)
+        if not isinstance(body, dict) or not set(body).issubset({"active", "reason"}):
+            raise ValidationError("Only 'active' and 'reason' are allowed")
+        active = body.get("active")
+        reason = body.get("reason", "")
+        if not isinstance(active, bool) or not isinstance(reason, str) or len(reason) > 255:
+            raise ValidationError("Invalid account status payload")
+        if not active and not reason.strip():
+            raise ValidationError("A lock reason is required")
+        try:
+            updated = store.set_user_active(user_id, active=active, reason=reason.strip())
+        except KeyError as exc:
+            raise NotFound("User not found") from exc
+        return jsonify({"id": updated["id"], "isActive": updated["is_active"]}), 200
+
+    @app.route("/api/admin/users/<user_id>", methods=["DELETE"])
+    @require_role("ADMIN", "admin")
+    def delete_admin_user(user_id: str) -> tuple[str, int]:
+        actor = getattr(g, "actor", {})
+        if str(actor.get("id")) == user_id:
+            raise Conflict("Administrators cannot delete their own account")
+        try:
+            store.soft_delete_user(user_id)
+        except KeyError as exc:
+            raise NotFound("User not found") from exc
+        return "", 204
 
     return app
 

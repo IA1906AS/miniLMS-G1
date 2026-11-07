@@ -1,4 +1,4 @@
-"""Comprehensive test suite for Defensive Pattern #6: Timeout & Fallback (TT-01 to TT-10)."""
+"""Course dashboard timeout, fallback and authorization tests."""
 
 from __future__ import annotations
 

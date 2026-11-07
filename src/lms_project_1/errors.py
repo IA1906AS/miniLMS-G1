@@ -73,9 +73,13 @@ AccountLocked = AccountLockedError
 
 def _sanitize_data(data: Any) -> Any:
     """Recursively strip sensitive credential fields from outbound response data."""
-    forbidden_keys = {"password", "password_hash", "passwordHash"}
+    forbidden_keys = {"password", "passwordhash"}
     if isinstance(data, dict):
-        return {k: _sanitize_data(v) for k, v in data.items() if k not in forbidden_keys}
+        return {
+            k: _sanitize_data(v)
+            for k, v in data.items()
+            if k.lower().replace("_", "").replace("-", "") not in forbidden_keys
+        }
     if isinstance(data, list):
         return [_sanitize_data(item) for item in data]
     return data
@@ -145,7 +149,8 @@ def register_error_handlers(app: Flask) -> None:
     def handle_unexpected_exception(exc: Exception) -> tuple[Response, int]:
         # 1. Log chi tiết lỗi dành cho Developer / IT nội bộ qua logger terminal
         try:
-            url_str = request.url if request else "unknown"
+            # Use the path only: query strings may contain reset tokens or other secrets.
+            url_str = request.path if request else "unknown"
         except Exception:
             url_str = "unknown"
         logger.error(f"Unhandled Exception at {url_str}: {exc}", exc_info=True)

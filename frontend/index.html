@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>EduShield LMS — Nền Tảng Học Trực Tuyến Chuẩn Mực & Bảo Mật</title>
+  <link rel="stylesheet" href="/static/design-system.css">
 
   <!-- Lọc sạch các cảnh báo log không cần thiết của thư viện CDN trong Console -->
   <script>
@@ -70,10 +71,12 @@
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.8/dist/cdn.min.js"></script>
 </head>
 
-<body class="bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 min-h-screen selection:bg-brand-500 selection:text-white transition-colors duration-200">
+<body class="es-app-shell bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 min-h-screen selection:bg-brand-500 selection:text-white transition-colors duration-200">
+
+  <a href="#main-content" class="es-skip-link">Chuyển đến nội dung chính</a>
 
   <!-- ==================== TOAST NOTIFICATION CONTAINER ==================== -->
-  <div x-show="toast.show" x-cloak
+  <div x-show="toast.show" x-cloak role="status" aria-live="polite"
        x-transition:enter="transition ease-out duration-300"
        x-transition:enter-start="opacity-0 translate-y-3 scale-95"
        x-transition:enter-end="opacity-100 translate-y-0 scale-100"
@@ -126,7 +129,7 @@
       </div>
 
       <!-- Navigation Links Theo Vai Trò Thực Tế -->
-      <nav class="hidden md:flex items-center space-x-1 text-xs font-semibold">
+      <nav aria-label="Điều hướng chính" class="hidden md:flex items-center space-x-1 text-xs font-semibold">
         <!-- Trang chủ -->
         <button @click="currentTab='home'"
                 :class="currentTab==='home' ? 'text-brand-600 bg-brand-50 dark:bg-brand-500/10 dark:text-brand-400' : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white'"
@@ -271,8 +274,38 @@
     </div>
   </header>
 
+  <!-- Điều hướng mobile dùng chung cho Public/Student/Teacher/Admin -->
+  <nav aria-label="Điều hướng di động"
+       class="es-mobile-nav md:hidden sticky top-16 z-30 border-b border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95">
+    <button @click="currentTab='home'" :aria-current="currentTab === 'home' ? 'page' : null">Trang chủ</button>
+    <template x-if="!token">
+      <button @click="scrollToCourses()">Khám phá khóa học</button>
+    </template>
+    <template x-if="token && isStudent()">
+      <div class="contents">
+        <button @click="currentTab='student-courses'">Khóa học của tôi</button>
+        <button @click="currentTab='student-assignments'">Bài tập</button>
+      </div>
+    </template>
+    <template x-if="token && isInstructor()">
+      <div class="contents">
+        <button @click="currentTab='instructor-grades'">Sổ điểm</button>
+        <button @click="currentTab='instructor-assignments'">Quản lý bài tập</button>
+      </div>
+    </template>
+    <template x-if="token && isAdmin()">
+      <div class="contents">
+        <button @click="currentTab='admin-users'">Người dùng</button>
+        <button @click="currentTab='admin-audit'">Audit</button>
+      </div>
+    </template>
+    <template x-if="token">
+      <button @click="currentTab='account-settings'">Tài khoản</button>
+    </template>
+  </nav>
+
   <!-- ==================== 2. MAIN APP CONTENT ==================== -->
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
+  <main id="main-content" class="es-page max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10" tabindex="-1">
 
     <!-- ==================== VIEW 1: TRANG CHỦ (HOME VIEW) ==================== -->
     <div x-show="currentTab==='home'" class="space-y-10">
@@ -602,6 +635,9 @@
 
             <div class="flex items-center justify-between pt-2">
               <span class="text-xs text-slate-500">Điểm hiện tại: <strong class="text-brand-600 dark:text-brand-400 text-sm" x-text="c.score"></strong> / 10.0</span>
+              <button x-show="c.progress >= 100" @click="issueCertificate(c.id)" class="text-xs font-bold text-purple-600 dark:text-purple-400 hover:underline">
+                Tải chứng chỉ
+              </button>
               <button @click="selectedCourseId=c.id; currentTab='student-grades'; loadStudentGrades()" class="text-xs font-bold text-brand-600 dark:text-brand-400 hover:underline">
                 Xem Bảng Điểm Môn Này &rarr;
               </button>
@@ -978,8 +1014,14 @@
               </div>
               <div>
                 <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Email (Đăng Nhập)</label>
-                <input type="email" :value="profileData.profile?.email || currentUser.email" disabled class="w-full px-3.5 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono text-slate-500">
+                <input type="email" x-model="profileForm.email" required class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-mono">
               </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Avatar URL (HTTPS)</label>
+              <input type="url" x-model="profileForm.avatarUrl" placeholder="https://..."
+                     class="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs">
             </div>
 
             <div>
@@ -1321,6 +1363,48 @@
     </div>
   </div>
 
+  <!-- Public course detail (CRS-02). -->
+  <div x-show="showCourseDetail" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm">
+    <div class="max-w-2xl w-full max-h-[85vh] overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-6 rounded-3xl shadow-2xl" @click.away="showCourseDetail=false">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <p class="text-xs font-bold text-brand-600" x-text="selectedPublicCourse?.category?.name || 'General'"></p>
+          <h3 class="text-2xl font-extrabold text-slate-900 dark:text-white" x-text="selectedPublicCourse?.title"></h3>
+          <p class="text-xs text-slate-500 mt-1" x-text="selectedPublicCourse?.instructor?.name || selectedPublicCourse?.instructor?.email"></p>
+        </div>
+        <button @click="showCourseDetail=false" class="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Đóng chi tiết khóa học">&times;</button>
+      </div>
+      <p class="mt-4 text-sm text-slate-600 dark:text-slate-300" x-text="selectedPublicCourse?.description"></p>
+      <div class="grid grid-cols-2 gap-3 mt-4 text-xs">
+        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800"><span class="text-slate-400">Thời lượng</span><strong class="block" x-text="(selectedPublicCourse?.durationHours || 0) + ' giờ'"></strong></div>
+        <div class="p-3 rounded-xl bg-slate-50 dark:bg-slate-800"><span class="text-slate-400">Học phí</span><strong class="block" x-text="selectedPublicCourse?.price ? selectedPublicCourse.price.toLocaleString() : 'Miễn phí'"></strong></div>
+      </div>
+      <h4 class="font-bold mt-5 mb-2">Nội dung khóa học</h4>
+      <template x-for="chapter in (selectedPublicCourse?.curriculum || [])" :key="chapter.id || 'unassigned'">
+        <div class="mb-2 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+          <p class="text-sm font-bold" x-text="chapter.title"></p>
+          <p class="text-xs text-slate-500" x-text="(chapter.lessons || []).map(item => item.title).join(' • ')"></p>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- Durable in-app notifications (LRN-04). -->
+  <div x-show="token" x-cloak class="fixed right-4 bottom-4 z-40">
+    <div x-show="showNotifications" class="absolute right-0 bottom-14 w-80 max-h-96 overflow-y-auto p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl">
+      <div class="flex justify-between items-center mb-2"><strong class="text-sm">Thông báo</strong><span class="text-xs text-slate-400" x-text="notificationInbox.unread + ' chưa đọc'"></span></div>
+      <template x-for="item in notificationInbox.items" :key="item.id">
+        <button @click="markNotificationRead(item)" class="w-full text-left p-3 mb-2 rounded-xl border border-slate-100 dark:border-slate-800" :class="item.isRead ? 'opacity-60' : 'bg-brand-50 dark:bg-brand-500/10'">
+          <span class="block text-xs font-bold" x-text="item.title"></span><span class="block text-[11px] text-slate-500" x-text="item.message"></span>
+        </button>
+      </template>
+      <p x-show="!notificationInbox.items.length" class="text-xs text-slate-400 p-3">Chưa có thông báo.</p>
+    </div>
+    <button @click="showNotifications=!showNotifications; if(showNotifications) loadNotifications()" class="relative w-12 h-12 rounded-full bg-brand-600 text-white shadow-lg" aria-label="Thông báo">
+      &#128276;<span x-show="notificationInbox.unread" class="absolute -top-1 -right-1 min-w-5 h-5 px-1 rounded-full bg-rose-600 text-[10px] leading-5" x-text="notificationInbox.unread"></span>
+    </button>
+  </div>
+
   <!-- ==================== 5. FOOTER ==================== -->
   <footer class="border-t border-slate-200 dark:border-slate-800/80 bg-white dark:bg-slate-950 py-8 text-center text-xs text-slate-500 dark:text-slate-400">
     <div class="max-w-7xl mx-auto px-4 space-y-2">
@@ -1340,6 +1424,10 @@
         tokenTTL: 900,
         ttlInterval: null,
         publicCourses: [],
+        selectedPublicCourse: null,
+        showCourseDetail: false,
+        notificationInbox: { items: [], unread: 0 },
+        showNotifications: false,
         courseSearchQuery: '',
         selectedCourseId: 'c1',
         studentGrades: [],
@@ -1350,7 +1438,7 @@
         submissionContent: {},
         homeDashboard: { user: {}, stats: {}, enrolledCourses: [], featuredCourses: [] },
         profileData: {},
-        profileForm: { fullName: '', phone: '', bio: '' },
+        profileForm: { email: '', fullName: '', phone: '', bio: '', avatarUrl: '' },
         passwordForm: { oldPassword: '', newPassword: '', confirmPassword: '' },
         notificationSettings: { emailNewCourses: true, emailAssignments: true, emailGradeUpdates: true },
         newAssignmentForm: { title: '', description: '', maxScore: 10.0 },
@@ -1543,23 +1631,18 @@
         async loadPublicCourses() {
           const res = await this.api('/api/public/courses');
           if (res.ok) {
-            this.publicCourses = res.data;
+            this.publicCourses = Array.isArray(res.data) ? res.data : (res.data.items || []);
           }
         },
 
-        inspectPublicCourse(course) {
-          this.selectedCourseId = course.id;
-          if (this.token) {
-            if (this.isStudent()) {
-              this.currentTab = 'student-grades';
-              this.loadStudentGrades();
-            } else if (this.isInstructor()) {
-              this.currentTab = 'instructor-grades';
-              this.loadTeacherGrades();
-            }
+        async inspectPublicCourse(course) {
+          const res = await this.api(`/api/public/courses/${course.id}`);
+          if (res.ok) {
+            this.selectedPublicCourse = res.data;
+            this.selectedCourseId = course.id;
+            this.showCourseDetail = true;
           } else {
-            this.notify('Vui lòng đăng nhập với vai trò Sinh viên hoặc Giảng viên để vào chi tiết môn học.', 'info');
-            this.openAuthModal('login');
+            this.notify(this.formatErrorMessage(res.data.error), 'error');
           }
         },
 
@@ -1570,6 +1653,7 @@
             this.startTTLCountdown(900);
             await this.loadDashboardData();
             await this.loadAccountData();
+            await this.loadNotifications();
 
             if (this.isAdmin()) {
               this.loadAuditLogs();
@@ -1604,9 +1688,12 @@
             this.profileData = res.data;
             if (res.data.profile) {
               this.profileForm.fullName = res.data.profile.fullName || '';
+              this.profileForm.email = res.data.profile.email || '';
               this.profileForm.phone = res.data.profile.phone || '';
               this.profileForm.bio = res.data.profile.bio || '';
+              this.profileForm.avatarUrl = res.data.profile.avatarUrl || '';
               this.currentUser.fullName = res.data.profile.fullName || '';
+              this.currentUser.email = res.data.profile.email || this.currentUser.email;
             }
             if (res.data.notifications) {
               this.notificationSettings = { ...res.data.notifications };
@@ -1651,7 +1738,23 @@
           }
         },
 
-        logout() {
+        async logout() {
+          const accessToken = this.token;
+          const refreshToken = localStorage.getItem('refreshToken');
+          if (accessToken) {
+            try {
+              await fetch('/auth/logout', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${accessToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: refreshToken ? JSON.stringify({ refreshToken }) : undefined
+              });
+            } catch (e) {
+              // Local cleanup remains mandatory when the network is unavailable.
+            }
+          }
           this.token = '';
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
@@ -1729,7 +1832,7 @@
         },
 
         async enrollInCourse(courseId) {
-          const res = await this.api(`/courses/${courseId}/enroll`, { method: 'POST' });
+          const res = await this.api(`/api/courses/${courseId}/enroll`, { method: 'POST' });
           if (res.ok) {
             this.notify(`Ghi danh thành công khóa học ${courseId}!`, 'success');
             await this.loadDashboardData();
@@ -1740,13 +1843,43 @@
         },
 
         async completeLesson(courseId, lessonId) {
-          const res = await this.api(`/courses/${courseId}/lessons/${lessonId}/complete`, { method: 'POST' });
+          const res = await this.api(`/api/courses/${courseId}/lessons/${lessonId}/progress`, { method: 'PUT' });
           if (res.ok) {
-            this.notify(`Đã hoàn thành bài học ${lessonId}! Tiến độ: ${res.data.progress}%`, 'success');
+            this.notify(`Đã hoàn thành bài học ${lessonId}! Tiến độ: ${res.data.percent}%`, 'success');
             await this.loadDashboardData();
+            await this.loadNotifications();
           } else {
             this.notify('Lỗi: ' + this.formatErrorMessage(res.data.error), 'error');
           }
+        },
+
+        async loadNotifications() {
+          const res = await this.api('/api/notifications');
+          if (res.ok) this.notificationInbox = res.data;
+        },
+
+        async markNotificationRead(item) {
+          if (!item.isRead) {
+            const res = await this.api(`/api/notifications/${item.id}/read`, { method: 'PATCH' });
+            if (res.ok) await this.loadNotifications();
+          }
+        },
+
+        async issueCertificate(courseId) {
+          const issued = await this.api(`/api/courses/${courseId}/certificate`, { method: 'POST' });
+          if (!issued.ok) {
+            this.notify(this.formatErrorMessage(issued.data.error), 'error');
+            return;
+          }
+          const response = await fetch(`/api/certificates/${issued.data.id}/download`, {
+            headers: { 'Authorization': `Bearer ${this.token}` }
+          });
+          if (!response.ok) return this.notify('Không thể tải chứng chỉ.', 'error');
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(await response.blob());
+          link.download = `certificate-${issued.data.id}.txt`;
+          link.click();
+          URL.revokeObjectURL(link.href);
         },
 
         async loadStudentGrades() {
@@ -1908,7 +2041,7 @@
         async loadAdminUsers() {
           const res = await this.api('/api/admin/users');
           if (res.ok) {
-            this.adminUsersList = res.data;
+            this.adminUsersList = res.data.items || res.data;
           }
         },
 

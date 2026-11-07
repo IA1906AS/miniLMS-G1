@@ -1,0 +1,102 @@
+/* EduShield shared design system — FND-05. Tailwind utilities remain the layout layer. */
+:root {
+  --es-color-brand-50: #eef2ff;
+  --es-color-brand-600: #4f46e5;
+  --es-color-brand-700: #4338ca;
+  --es-color-success: #059669;
+  --es-color-warning: #d97706;
+  --es-color-danger: #e11d48;
+  --es-color-surface: #ffffff;
+  --es-color-text: #1e293b;
+  --es-focus-ring: 0 0 0 3px rgb(99 102 241 / 35%);
+  --es-radius-sm: 0.75rem;
+  --es-radius-md: 1rem;
+  --es-radius-lg: 1.5rem;
+  --es-shadow-card: 0 4px 20px -2px rgb(15 23 42 / 8%);
+  --es-space-page: clamp(1rem, 3vw, 2rem);
+}
+
+.dark {
+  --es-color-surface: #0f172a;
+  --es-color-text: #f1f5f9;
+}
+
+.es-app-shell {
+  color: var(--es-color-text);
+  text-rendering: optimizeLegibility;
+}
+
+.es-page {
+  width: min(100%, 80rem);
+}
+
+.es-skip-link {
+  position: fixed;
+  z-index: 100;
+  top: 0.75rem;
+  left: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--es-radius-sm);
+  background: var(--es-color-brand-700);
+  color: #fff;
+  font-weight: 700;
+  transform: translateY(-180%);
+  transition: transform 150ms ease;
+}
+
+.es-skip-link:focus {
+  transform: translateY(0);
+}
+
+.es-mobile-nav {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0.625rem var(--es-space-page);
+  scrollbar-width: thin;
+}
+
+.es-mobile-nav button {
+  min-height: 2.75rem;
+  flex: 0 0 auto;
+  padding: 0.625rem 0.875rem;
+  border-radius: var(--es-radius-sm);
+  color: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.es-mobile-nav button:hover,
+.es-mobile-nav button[aria-current="page"] {
+  background: var(--es-color-brand-50);
+  color: var(--es-color-brand-700);
+}
+
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--es-color-brand-600);
+  outline-offset: 2px;
+  box-shadow: var(--es-focus-ring);
+}
+
+@media (max-width: 374px) {
+  .es-page {
+    padding-inline: 0.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+@media (forced-colors: active) {
+  :where(a, button, input, select, textarea):focus-visible {
+    outline: 2px solid CanvasText;
+  }
+}

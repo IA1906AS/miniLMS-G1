@@ -48,10 +48,14 @@ def _unauthenticated_response() -> Response:
 def _format_user(raw_user: Any) -> dict[str, str] | None:
     """Normalize raw user object or dictionary to {id, email, role}."""
     if isinstance(raw_user, dict):
+        if raw_user.get("is_active") is False or raw_user.get("deleted_at") is not None:
+            return None
         user_id = str(raw_user.get("id", ""))
         email = str(raw_user.get("email", ""))
         role = str(raw_user.get("role", ""))
     elif hasattr(raw_user, "id") and hasattr(raw_user, "email") and hasattr(raw_user, "role"):
+        if getattr(raw_user, "is_active", True) is False or getattr(raw_user, "deleted_at", None):
+            return None
         user_id = str(getattr(raw_user, "id", ""))
         email = str(getattr(raw_user, "email", ""))
         role = str(getattr(raw_user, "role", ""))
@@ -196,6 +200,10 @@ def gate_before_request() -> Response | None:
     req_path = request.path.rstrip("/") or "/"
     if (request.method.upper(), req_path) in PUBLIC_AUTH_ENDPOINTS:
         return None
+    if request.method.upper() == "GET" and req_path.startswith("/auth/oauth/"):
+        return None
+    if request.method.upper() == "GET" and req_path.startswith("/api/public/"):
+        return None
     if request.method.upper() == ALLOWLIST_METHOD and req_path == ALLOWLIST_PATH:
         return None
     if request.method.upper() == "GET" and (
@@ -251,6 +259,13 @@ def gate_before_request() -> Response | None:
     user = _lookup_user_in_store(user_id)
     if user is None:
         return _unauthenticated_response()
+
+    store_obj = getattr(current_app, "store", None) or current_app.config.get("STORE")
+    jti = payload.get("jti")
+    if store_obj is not None and isinstance(jti, str):
+        is_revoked = getattr(store_obj, "is_access_token_revoked", None)
+        if callable(is_revoked) and is_revoked(jti):
+            return _unauthenticated_response()
 
     # 6. Populate Flask request context with actor
     actor: dict[str, str] = {

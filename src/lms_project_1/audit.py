@@ -40,9 +40,18 @@ def log_event(
         entry["newScore"] = new_score
 
     # Exclude any sensitive keys
-    forbidden_keys = {"password", "token", "password_hash", "passwordHash", "secret"}
+    forbidden_keys = {
+        "password",
+        "passwordhash",
+        "token",
+        "accesstoken",
+        "refreshtoken",
+        "authorization",
+        "secret",
+    }
     for k, v in extra.items():
-        if k.lower() not in forbidden_keys:
+        normalized_key = k.lower().replace("_", "").replace("-", "")
+        if normalized_key not in forbidden_keys:
             entry[k] = v
 
     path = Path(log_path)

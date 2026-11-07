@@ -17,10 +17,21 @@ from sqlalchemy.orm import Session, scoped_session
 from lms_project_1.errors import ConflictError, ValidationError
 from lms_project_1.models import (
     Assignment,
+    Certificate,
     Course,
+    CourseCategory,
+    CourseChapter,
+    CourseRoadmapItem,
     Enrollment,
     IdempotencyRecord,
+    Lesson,
+    LessonProgress,
+    LessonResource,
+    Notification,
+    OAuthIdentity,
     PasswordResetToken,
+    RefreshSession,
+    RevokedAccessToken,
     Submission,
     User,
 )
@@ -39,10 +50,24 @@ class Store:
         self.users: dict[str, dict[str, Any]] = {}
         self.users_by_email: dict[str, dict[str, Any]] = {}
         self.courses: dict[str, dict[str, Any]] = {}
+        self.course_categories: dict[str, dict[str, Any]] = {
+            "cat-general": {"id": "cat-general", "name": "General", "slug": "general"}
+        }
+        self.course_chapters: dict[str, dict[str, Any]] = {}
+        self.course_roadmap: dict[str, dict[str, Any]] = {}
+        self.lesson_resources: dict[str, dict[str, Any]] = {}
+        self.lesson_progress: dict[tuple[str, str, str], dict[str, Any]] = {}
+        self.notifications: dict[str, dict[str, Any]] = {}
+        self.certificates: dict[str, dict[str, Any]] = {}
         # Key: (courseId, studentId) -> {"courseId": ..., "studentId": ..., "score": float}
         self.enrollments: dict[tuple[str, str], dict[str, Any]] = {}
         # In-memory reset tokens: token_hash -> record dict
         self.reset_tokens: dict[str, dict[str, Any]] = {}
+        self.refresh_sessions: dict[str, dict[str, Any]] = {}
+        self.revoked_access_tokens: dict[str, datetime] = {}
+        self.auth_session_lock = threading.RLock()
+        self.oauth_states: dict[str, dict[str, Any]] = {}
+        self.oauth_identities: dict[tuple[str, str], str] = {}
         # Assignments: assignment_id -> dict
         self.assignments: dict[str, dict[str, Any]] = {}
         # Submissions: (assignment_id, student_id) -> dict
@@ -78,10 +103,106 @@ class Store:
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f)
                 self._load_data(data)
+        if self.db_session is not None:
+            self._hydrate_course_learning_from_db()
 
     def set_session(self, session: scoped_session[Session] | Session | None) -> None:
         """Bind an active database session."""
         self.db_session = session
+
+    def _hydrate_course_learning_from_db(self) -> None:
+        """Hydrate durable course/learning state after application restart."""
+        if self.db_session is None:
+            return
+        for category_row in self.db_session.execute(select(CourseCategory)).scalars():
+            self.course_categories[category_row.id] = {
+                "id": category_row.id,
+                "name": category_row.name,
+                "slug": category_row.slug,
+            }
+        for course_row in self.db_session.execute(select(Course)).scalars():
+            existing = self.courses.get(course_row.id, {})
+            existing.update(
+                {
+                    "id": course_row.id,
+                    "title": course_row.title,
+                    "instructorId": course_row.instructor_id or "",
+                    "categoryId": course_row.category_id or "",
+                    "description": course_row.description,
+                    "thumbnail": course_row.thumbnail,
+                    "durationHours": course_row.duration_hours,
+                    "price": course_row.price,
+                    "status": course_row.status,
+                    "isVisible": course_row.is_visible,
+                    "rejectionReason": course_row.rejection_reason,
+                    "isFeatured": existing.get("isFeatured", False),
+                    "lessons": [],
+                }
+            )
+            self.courses[course_row.id] = existing
+        for chapter_row in self.db_session.execute(select(CourseChapter)).scalars():
+            self.course_chapters[chapter_row.id] = {
+                "id": chapter_row.id,
+                "courseId": chapter_row.course_id,
+                "title": chapter_row.title,
+                "orderIndex": chapter_row.order_index,
+            }
+        for lesson_row in self.db_session.execute(select(Lesson)).scalars():
+            course = self.courses.get(lesson_row.course_id)
+            if course is not None:
+                course.setdefault("lessons", []).append(
+                    {
+                        "id": lesson_row.id,
+                        "courseId": lesson_row.course_id,
+                        "chapterId": lesson_row.chapter_id,
+                        "title": lesson_row.title,
+                        "content": lesson_row.content,
+                        "contentType": lesson_row.content_type,
+                        "videoUrl": lesson_row.video_url,
+                        "orderIndex": lesson_row.order_index,
+                    }
+                )
+        for roadmap_row in self.db_session.execute(select(CourseRoadmapItem)).scalars():
+            self.course_roadmap[roadmap_row.id] = {
+                "id": roadmap_row.id,
+                "courseId": roadmap_row.course_id,
+                "title": roadmap_row.title,
+                "description": roadmap_row.description,
+                "orderIndex": roadmap_row.order_index,
+            }
+        for resource_row in self.db_session.execute(select(LessonResource)).scalars():
+            self.lesson_resources[resource_row.id] = {
+                "id": resource_row.id,
+                "lessonId": resource_row.lesson_id,
+                "title": resource_row.title,
+                "resourceUrl": resource_row.resource_url,
+                "mimeType": resource_row.mime_type,
+                "sizeBytes": resource_row.size_bytes,
+            }
+        for progress_row in self.db_session.execute(select(LessonProgress)).scalars():
+            self.lesson_progress[
+                (progress_row.course_id, progress_row.lesson_id, progress_row.student_id)
+            ] = {"completedAt": progress_row.completed_at.isoformat()}
+        for notification_row in self.db_session.execute(select(Notification)).scalars():
+            self.notifications[notification_row.id] = {
+                "id": notification_row.id,
+                "userId": notification_row.user_id,
+                "kind": notification_row.kind,
+                "title": notification_row.title,
+                "message": notification_row.message,
+                "isRead": notification_row.is_read,
+                "createdAt": notification_row.created_at.isoformat(),
+            }
+        for certificate_row in self.db_session.execute(select(Certificate)).scalars():
+            course = self.courses.get(certificate_row.course_id, {})
+            self.certificates[certificate_row.id] = {
+                "id": certificate_row.id,
+                "courseId": certificate_row.course_id,
+                "studentId": certificate_row.student_id,
+                "courseTitle": course.get("title", ""),
+                "verificationCode": certificate_row.verification_code,
+                "issuedAt": certificate_row.issued_at.isoformat(),
+            }
 
     def _resolve_seed_path(self, seed_path: str | Path | None) -> Path:
         if seed_path is not None:
@@ -119,6 +240,9 @@ class Store:
                 ),
                 "is_active": True,
                 "is_verified": True,
+                "locked_at": None,
+                "locked_reason": None,
+                "deleted_at": None,
                 "phone": str(u.get("phone", "")),
                 "bio": str(u.get("bio", "")),
                 "avatarUrl": str(
@@ -159,6 +283,11 @@ class Store:
                 ),
                 "durationHours": int(c.get("durationHours", 30)),
                 "isFeatured": bool(c.get("isFeatured", False)),
+                "categoryId": str(c.get("categoryId", "cat-general")),
+                "price": float(c.get("price", 0.0)),
+                "status": str(c.get("status", "PUBLISHED")).upper(),
+                "isVisible": bool(c.get("isVisible", True)),
+                "rejectionReason": None,
                 "lessons": list(c.get("lessons", default_lessons)),
             }
             self.courses[course_record["id"]] = course_record
@@ -298,6 +427,9 @@ class Store:
                         "full_name": db_user.full_name,
                         "is_active": db_user.is_active,
                         "is_verified": db_user.is_verified,
+                        "locked_at": db_user.locked_at,
+                        "locked_reason": db_user.locked_reason,
+                        "deleted_at": db_user.deleted_at,
                     }
             except Exception:
                 pass
@@ -326,6 +458,9 @@ class Store:
                         "full_name": db_user.full_name,
                         "is_active": db_user.is_active,
                         "is_verified": db_user.is_verified,
+                        "locked_at": db_user.locked_at,
+                        "locked_reason": db_user.locked_reason,
+                        "deleted_at": db_user.deleted_at,
                     }
             except Exception:
                 pass
@@ -382,6 +517,9 @@ class Store:
             },
             "is_active": is_active,
             "is_verified": is_verified,
+            "locked_at": None,
+            "locked_reason": None,
+            "deleted_at": None,
         }
         self.users[uid] = user_record
         self.users_by_email[normalized_email] = user_record
@@ -410,6 +548,114 @@ class Store:
             updated = True
 
         return updated
+
+    def list_users(
+        self,
+        *,
+        query: str = "",
+        role: str = "",
+        status: str = "",
+    ) -> list[dict[str, Any]]:
+        """List sanitized users with deterministic filtering."""
+        if self.db_session is not None:
+            rows = self.db_session.execute(select(User)).scalars().all()
+            users = [
+                {
+                    "id": row.id,
+                    "email": row.email,
+                    "fullName": row.full_name,
+                    "role": row.role,
+                    "isActive": row.is_active,
+                    "lockedReason": row.locked_reason,
+                    "deletedAt": row.deleted_at.isoformat() if row.deleted_at else None,
+                }
+                for row in rows
+            ]
+        else:
+            users = [
+                {
+                    "id": user["id"],
+                    "email": user["email"],
+                    "fullName": user.get("fullName") or user.get("full_name", ""),
+                    "role": user.get("role", "guest"),
+                    "isActive": bool(user.get("is_active", True)),
+                    "lockedReason": user.get("locked_reason"),
+                    "deletedAt": (
+                        user["deleted_at"].isoformat()
+                        if isinstance(user.get("deleted_at"), datetime)
+                        else user.get("deleted_at")
+                    ),
+                }
+                for user in self.users.values()
+            ]
+
+        normalized_query = query.strip().lower()
+        normalized_role = role.strip().lower()
+        normalized_status = status.strip().lower()
+        result: list[dict[str, Any]] = []
+        for user in users:
+            if normalized_query and normalized_query not in (
+                f"{user['email']} {user['fullName']}".lower()
+            ):
+                continue
+            if normalized_role and str(user["role"]).lower() != normalized_role:
+                continue
+            current_status = (
+                "deleted" if user["deletedAt"] else "active" if user["isActive"] else "locked"
+            )
+            if normalized_status and current_status != normalized_status:
+                continue
+            user["status"] = current_status
+            result.append(user)
+        return sorted(result, key=lambda item: (str(item["email"]), str(item["id"])))
+
+    def set_user_active(self, user_id: str, *, active: bool, reason: str = "") -> dict[str, Any]:
+        """Lock or unlock a non-deleted account in DB and memory."""
+        now = datetime.now(UTC)
+        user = self.users.get(str(user_id))
+        if self.db_session is not None:
+            row = self.db_session.execute(
+                select(User).where(User.id == str(user_id))
+            ).scalar_one_or_none()
+            if row is None or row.deleted_at is not None:
+                raise KeyError(user_id)
+            row.is_active = active
+            row.locked_at = None if active else now
+            row.locked_reason = None if active else reason
+            self.db_session.commit()
+        if user is not None:
+            if user.get("deleted_at") is not None:
+                raise KeyError(user_id)
+            user["is_active"] = active
+            user["locked_at"] = None if active else now
+            user["locked_reason"] = None if active else reason
+        updated = self.get_user_by_id(str(user_id))
+        if updated is None:
+            raise KeyError(user_id)
+        return updated
+
+    def soft_delete_user(self, user_id: str) -> None:
+        """Deactivate and mark a user deleted without removing related data."""
+        now = datetime.now(UTC)
+        found = False
+        if self.db_session is not None:
+            row = self.db_session.execute(
+                select(User).where(User.id == str(user_id))
+            ).scalar_one_or_none()
+            if row is not None:
+                row.is_active = False
+                row.deleted_at = row.deleted_at or now
+                row.locked_reason = row.locked_reason or "soft-deleted"
+                self.db_session.commit()
+                found = True
+        user = self.users.get(str(user_id))
+        if user is not None:
+            user["is_active"] = False
+            user["deleted_at"] = user.get("deleted_at") or now
+            user["locked_reason"] = user.get("locked_reason") or "soft-deleted"
+            found = True
+        if not found:
+            raise KeyError(user_id)
 
     def create_password_reset_token(
         self,
@@ -496,6 +742,212 @@ class Store:
             "email": user["email"],
             "role": user["role"],
         }
+
+    def create_refresh_session(
+        self,
+        *,
+        jti: str,
+        user_id: str,
+        family_id: str,
+        token_hash: str,
+        expires_at: datetime,
+    ) -> None:
+        """Persist one active refresh-token session."""
+        record = {
+            "jti": jti,
+            "user_id": user_id,
+            "family_id": family_id,
+            "token_hash": token_hash,
+            "expires_at": expires_at,
+            "revoked_at": None,
+            "replaced_by_jti": None,
+        }
+        with self.auth_session_lock:
+            if self.db_session is not None:
+                self.db_session.add(
+                    RefreshSession(
+                        jti=jti,
+                        user_id=user_id,
+                        family_id=family_id,
+                        token_hash=token_hash,
+                        expires_at=expires_at,
+                    )
+                )
+                self.db_session.commit()
+            self.refresh_sessions[jti] = record
+
+    def get_refresh_session(self, jti: str) -> dict[str, Any] | None:
+        """Return a refresh session from DB or memory."""
+        if self.db_session is not None:
+            row = self.db_session.execute(
+                select(RefreshSession).where(RefreshSession.jti == jti)
+            ).scalar_one_or_none()
+            if row is not None:
+                return {
+                    "jti": row.jti,
+                    "user_id": row.user_id,
+                    "family_id": row.family_id,
+                    "token_hash": row.token_hash,
+                    "expires_at": row.expires_at,
+                    "revoked_at": row.revoked_at,
+                    "replaced_by_jti": row.replaced_by_jti,
+                }
+        record = self.refresh_sessions.get(jti)
+        return dict(record) if record else None
+
+    def rotate_refresh_session(
+        self,
+        old_jti: str,
+        *,
+        new_jti: str,
+        user_id: str,
+        family_id: str,
+        token_hash: str,
+        expires_at: datetime,
+    ) -> bool:
+        """Atomically revoke one refresh token and replace it once."""
+        now = datetime.now(UTC)
+        with self.auth_session_lock:
+            old = self.get_refresh_session(old_jti)
+            if old is None or old.get("revoked_at") is not None:
+                return False
+            if self.db_session is not None:
+                db_old = self.db_session.execute(
+                    select(RefreshSession).where(RefreshSession.jti == old_jti)
+                ).scalar_one()
+                db_old.revoked_at = now
+                db_old.replaced_by_jti = new_jti
+                self.db_session.add(
+                    RefreshSession(
+                        jti=new_jti,
+                        user_id=user_id,
+                        family_id=family_id,
+                        token_hash=token_hash,
+                        expires_at=expires_at,
+                    )
+                )
+                self.db_session.commit()
+            if old_jti in self.refresh_sessions:
+                self.refresh_sessions[old_jti]["revoked_at"] = now
+                self.refresh_sessions[old_jti]["replaced_by_jti"] = new_jti
+            self.refresh_sessions[new_jti] = {
+                "jti": new_jti,
+                "user_id": user_id,
+                "family_id": family_id,
+                "token_hash": token_hash,
+                "expires_at": expires_at,
+                "revoked_at": None,
+                "replaced_by_jti": None,
+            }
+            return True
+
+    def revoke_refresh_session(self, jti: str) -> None:
+        """Revoke a refresh token if it exists; repeated logout is safe."""
+        now = datetime.now(UTC)
+        with self.auth_session_lock:
+            if self.db_session is not None:
+                row = self.db_session.execute(
+                    select(RefreshSession).where(RefreshSession.jti == jti)
+                ).scalar_one_or_none()
+                if row is not None and row.revoked_at is None:
+                    row.revoked_at = now
+                    self.db_session.commit()
+            if jti in self.refresh_sessions:
+                self.refresh_sessions[jti]["revoked_at"] = now
+
+    def revoke_access_token(self, *, jti: str, user_id: str, expires_at: datetime) -> None:
+        """Persist an access-token deny-list entry through its expiry."""
+        with self.auth_session_lock:
+            if self.db_session is not None:
+                existing = self.db_session.execute(
+                    select(RevokedAccessToken).where(RevokedAccessToken.jti == jti)
+                ).scalar_one_or_none()
+                if existing is None:
+                    self.db_session.add(
+                        RevokedAccessToken(jti=jti, user_id=user_id, expires_at=expires_at)
+                    )
+                    self.db_session.commit()
+            self.revoked_access_tokens[jti] = expires_at
+
+    def is_access_token_revoked(self, jti: str) -> bool:
+        """Check the access-token deny list and discard expired memory entries."""
+        now = datetime.now(UTC)
+        if self.db_session is not None:
+            row = self.db_session.execute(
+                select(RevokedAccessToken).where(RevokedAccessToken.jti == jti)
+            ).scalar_one_or_none()
+            if row is not None:
+                expires_at = row.expires_at
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=UTC)
+                return expires_at > now
+        memory_expiry = self.revoked_access_tokens.get(jti)
+        if memory_expiry is None:
+            return False
+        if memory_expiry.tzinfo is None:
+            memory_expiry = memory_expiry.replace(tzinfo=UTC)
+        if memory_expiry <= now:
+            self.revoked_access_tokens.pop(jti, None)
+            return False
+        return True
+
+    def create_oauth_state(
+        self,
+        *,
+        state_hash: str,
+        provider: str,
+        code_verifier: str,
+        expires_at: datetime,
+    ) -> None:
+        """Store a short-lived, single-use OAuth state in application memory."""
+        self.oauth_states[state_hash] = {
+            "provider": provider,
+            "code_verifier": code_verifier,
+            "expires_at": expires_at,
+        }
+
+    def consume_oauth_state(self, state_hash: str, provider: str) -> dict[str, Any] | None:
+        """Atomically consume OAuth state to prevent callback replay."""
+        with self.auth_session_lock:
+            record = self.oauth_states.pop(state_hash, None)
+        if record is None or record.get("provider") != provider:
+            return None
+        expires_at = record.get("expires_at")
+        if not isinstance(expires_at, datetime):
+            return None
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return dict(record) if expires_at > datetime.now(UTC) else None
+
+    def get_oauth_identity(self, provider: str, subject: str) -> str | None:
+        """Resolve an OAuth identity to a local user ID."""
+        if self.db_session is not None:
+            row = self.db_session.execute(
+                select(OAuthIdentity).where(
+                    OAuthIdentity.provider == provider,
+                    OAuthIdentity.subject == subject,
+                )
+            ).scalar_one_or_none()
+            if row is not None:
+                return row.user_id
+        return self.oauth_identities.get((provider, subject))
+
+    def link_oauth_identity(self, provider: str, subject: str, user_id: str) -> None:
+        """Persist a provider subject after verified-email account linking."""
+        existing = self.get_oauth_identity(provider, subject)
+        if existing is not None and existing != user_id:
+            raise ConflictError("OAuth identity is already linked")
+        if self.db_session is not None and existing is None:
+            self.db_session.add(
+                OAuthIdentity(
+                    id=str(uuid.uuid4()),
+                    provider=provider,
+                    subject=subject,
+                    user_id=user_id,
+                )
+            )
+            self.db_session.commit()
+        self.oauth_identities[(provider, subject)] = user_id
 
     def get_course_by_id(self, course_id: str) -> dict[str, Any] | None:
         """Find course by ID. Returns copy or None."""
@@ -1043,12 +1495,17 @@ class Store:
     def update_user_profile(self, user_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Safely update editable user profile fields.
 
-        Enforces Defense in Depth: strictly prevents modification of id, email, role,
-        or password_hash.
+        Enforces Defense in Depth: prevents modification of id, role, or password hash.
         """
         user = self.users.get(user_id)
         if not user:
             raise KeyError(f"User '{user_id}' not found")
+
+        old_email = str(user["email"])
+        new_email = str(payload.get("email", old_email)).strip().lower()
+        existing = self.users_by_email.get(new_email)
+        if existing is not None and str(existing.get("id")) != str(user_id):
+            raise ConflictError("Email is already in use")
 
         if "fullName" in payload:
             user["fullName"] = str(payload["fullName"]).strip()
@@ -1058,6 +1515,26 @@ class Store:
             user["bio"] = str(payload["bio"]).strip()
         if "avatarUrl" in payload:
             user["avatarUrl"] = str(payload["avatarUrl"]).strip()
+        if "email" in payload:
+            self.users_by_email.pop(old_email, None)
+            user["email"] = new_email
+            self.users_by_email[new_email] = user
+
+        if self.db_session is not None:
+            try:
+                db_user = self.db_session.execute(
+                    select(User).where(User.id == str(user_id))
+                ).scalar_one_or_none()
+                if db_user is not None:
+                    db_user.email = new_email
+                    db_user.full_name = str(user.get("fullName", ""))
+                    db_user.phone_number = str(user.get("phone", "")) or None
+                    db_user.bio = str(user.get("bio", ""))
+                    db_user.avatar_url = str(user.get("avatarUrl", "")) or None
+                    self.db_session.commit()
+            except Exception:
+                self.db_session.rollback()
+                raise
 
         return self.get_user_profile(user_id) or {}
 

@@ -1,4 +1,4 @@
-"""Comprehensive test suite for Defensive Pattern #8: Transactional Outbox (O8-01 to O8-07)."""
+"""Enrollment transactional-outbox delivery and retry tests."""
 
 from __future__ import annotations
 

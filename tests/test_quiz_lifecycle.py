@@ -1,4 +1,4 @@
-"""Comprehensive test suite for Defensive Pattern #7: Quiz State Machine (S7-01 to S7-07)."""
+"""Quiz-attempt lifecycle, validation and ownership tests."""
 
 from __future__ import annotations
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from email_validator import EmailNotValidError, validate_email
 
@@ -185,7 +186,7 @@ def validate_update_profile_payload(data: Any) -> dict[str, str]:
     if not isinstance(data, dict):
         raise ValidationError("Request body must be a JSON object")
 
-    allowed_keys = {"fullName", "phone", "bio", "avatarUrl"}
+    allowed_keys = {"email", "fullName", "phone", "bio", "avatarUrl"}
     unknown_keys = set(data.keys()) - allowed_keys
     if unknown_keys:
         disallowed = ", ".join(sorted(unknown_keys))
@@ -200,12 +201,18 @@ def validate_update_profile_payload(data: Any) -> dict[str, str]:
             val_str = val.strip()
             if key == "fullName" and len(val_str) > 120:
                 raise ValidationError("'fullName' exceeds maximum length of 120 characters")
+            if key == "email":
+                val_str = validate_email_format(val_str)
             if key == "phone" and len(val_str) > 30:
                 raise ValidationError("'phone' exceeds maximum length of 30 characters")
             if key == "bio" and len(val_str) > 1000:
                 raise ValidationError("'bio' exceeds maximum length of 1000 characters")
             if key == "avatarUrl" and len(val_str) > 1000:
                 raise ValidationError("'avatarUrl' exceeds maximum length of 1000 characters")
+            if key == "avatarUrl" and val_str:
+                parsed = urlparse(val_str)
+                if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                    raise ValidationError("'avatarUrl' must be an absolute HTTP(S) URL")
             result[key] = val_str
 
     return result

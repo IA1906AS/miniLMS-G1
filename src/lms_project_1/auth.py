@@ -3,12 +3,14 @@ from __future__ import annotations
 import hashlib
 import secrets
 import time
+from base64 import urlsafe_b64encode
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
 
 import bcrypt
 import jwt
-from flask import Blueprint, Response, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, g, jsonify, request
 
 from lms_project_1 import schemas
 
@@ -93,6 +95,7 @@ def create_access_token(
     ttl_seconds: int = 900,
     role: str | None = None,
     email: str | None = None,
+    jti: str | None = None,
 ) -> str:
     """Generate a signed JWT access token containing sub, iat, exp, and optional role/email."""
     if not secret or len(secret) < 32:
@@ -103,6 +106,7 @@ def create_access_token(
         "sub": user_id,
         "iat": now,
         "exp": now + ttl_seconds,
+        "jti": jti or secrets.token_urlsafe(24),
     }
     if role:
         payload["role"] = role
@@ -111,7 +115,14 @@ def create_access_token(
     return jwt.encode(payload, secret, algorithm="HS256")
 
 
-def create_refresh_token(user_id: str, secret: str, ttl_days: int = 7) -> str:
+def create_refresh_token(
+    user_id: str,
+    secret: str,
+    ttl_days: int = 7,
+    *,
+    jti: str | None = None,
+    family_id: str | None = None,
+) -> str:
     """Generate a signed JWT refresh token valid for 7-30 days."""
     if not secret or len(secret) < 32:
         raise RuntimeError("JWT_SECRET must be configured and >= 32 characters")
@@ -122,6 +133,8 @@ def create_refresh_token(user_id: str, secret: str, ttl_days: int = 7) -> str:
         "type": "refresh",
         "iat": now,
         "exp": now + (ttl_days * 86400),
+        "jti": jti or secrets.token_urlsafe(24),
+        "family": family_id or secrets.token_urlsafe(24),
     }
     return jwt.encode(payload, secret, algorithm="HS256")
 
@@ -165,7 +178,7 @@ def decode_refresh_token(token: str, secret: str) -> dict[str, Any]:
             secret,
             algorithms=["HS256"],
             options={
-                "require": ["sub", "iat", "exp", "type"],
+                "require": ["sub", "iat", "exp", "type", "jti", "family"],
                 "verify_exp": True,
                 "verify_iat": True,
                 "verify_signature": True,
@@ -176,6 +189,45 @@ def decode_refresh_token(token: str, secret: str) -> dict[str, Any]:
         return payload
     except (jwt.PyJWTError, Exception) as exc:
         raise Unauthenticated("Invalid or expired refresh token") from exc
+
+
+def _issue_oauth_token_pair(user: dict[str, Any], store: Any) -> dict[str, Any]:
+    """Issue and persist the initial token pair after an OAuth callback."""
+    secret = str(current_app.config.get("JWT_SECRET", ""))
+    ttl = int(current_app.config.get("TOKEN_TTL_SECONDS", 900))
+    access_jti = secrets.token_urlsafe(24)
+    refresh_jti = secrets.token_urlsafe(24)
+    family_id = secrets.token_urlsafe(24)
+    access_token = create_access_token(
+        str(user["id"]),
+        secret,
+        ttl_seconds=ttl,
+        role=str(user.get("role", "student")),
+        email=str(user.get("email", "")),
+        jti=access_jti,
+    )
+    refresh_token = create_refresh_token(
+        str(user["id"]), secret, jti=refresh_jti, family_id=family_id
+    )
+    payload = decode_refresh_token(refresh_token, secret)
+    store.create_refresh_session(
+        jti=refresh_jti,
+        user_id=str(user["id"]),
+        family_id=family_id,
+        token_hash=hashlib.sha256(refresh_token.encode()).hexdigest(),
+        expires_at=datetime.fromtimestamp(int(payload["exp"]), UTC),
+    )
+    return {
+        "accessToken": access_token,
+        "refreshToken": refresh_token,
+        "expiresIn": ttl,
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "full_name": user.get("full_name", user.get("fullName", "")),
+            "role": user.get("role", "student"),
+        },
+    }
 
 
 class BruteForceTracker:
@@ -377,14 +429,31 @@ def login() -> tuple[Response, int]:
     # Login successful: reset failed attempt counter
     tracker.record_success(email)
 
+    if not user.get("is_active", True):
+        raise InvalidCredentials("Invalid credentials")
+
+    access_jti = secrets.token_urlsafe(24)
+    refresh_jti = secrets.token_urlsafe(24)
+    family_id = secrets.token_urlsafe(24)
     access_token = create_access_token(
         user["id"],
         secret=secret,
         ttl_seconds=ttl,
         role=user.get("role"),
         email=user.get("email"),
+        jti=access_jti,
     )
-    refresh_token = create_refresh_token(user["id"], secret=secret)
+    refresh_token = create_refresh_token(
+        user["id"], secret=secret, jti=refresh_jti, family_id=family_id
+    )
+    refresh_payload = decode_refresh_token(refresh_token, secret)
+    store.create_refresh_session(
+        jti=refresh_jti,
+        user_id=str(user["id"]),
+        family_id=family_id,
+        token_hash=hashlib.sha256(refresh_token.encode("utf-8")).hexdigest(),
+        expires_at=datetime.fromtimestamp(int(refresh_payload["exp"]), UTC),
+    )
 
     return jsonify(
         {
@@ -525,18 +594,47 @@ def refresh() -> tuple[Response, int]:
 
     payload = decode_refresh_token(token_str.strip(), secret)
     user_id = str(payload.get("sub", ""))
+    old_jti = str(payload.get("jti", ""))
+    family_id = str(payload.get("family", ""))
+    session = store.get_refresh_session(old_jti) if store else None
+    token_hash = hashlib.sha256(token_str.strip().encode("utf-8")).hexdigest()
+    if (
+        session is None
+        or session.get("revoked_at") is not None
+        or not secrets.compare_digest(str(session.get("token_hash", "")), token_hash)
+    ):
+        raise Unauthenticated("Refresh token was revoked or replayed")
     user = store.get_user_by_id(user_id) if store else None
     if not user or not user.get("is_active", True):
         raise Unauthenticated("User not found or inactive")
 
+    new_access_jti = secrets.token_urlsafe(24)
+    new_refresh_jti = secrets.token_urlsafe(24)
     new_access_token = create_access_token(
         user["id"],
         secret=secret,
         ttl_seconds=ttl,
         role=user.get("role"),
         email=user.get("email"),
+        jti=new_access_jti,
     )
-    new_refresh_token = create_refresh_token(user["id"], secret=secret)
+    new_refresh_token = create_refresh_token(
+        user["id"],
+        secret=secret,
+        jti=new_refresh_jti,
+        family_id=family_id,
+    )
+    new_refresh_payload = decode_refresh_token(new_refresh_token, secret)
+    rotated = store.rotate_refresh_session(
+        old_jti,
+        new_jti=new_refresh_jti,
+        user_id=user_id,
+        family_id=family_id,
+        token_hash=hashlib.sha256(new_refresh_token.encode("utf-8")).hexdigest(),
+        expires_at=datetime.fromtimestamp(int(new_refresh_payload["exp"]), UTC),
+    )
+    if not rotated:
+        raise Unauthenticated("Refresh token was revoked or replayed")
 
     return jsonify(
         {
@@ -545,3 +643,147 @@ def refresh() -> tuple[Response, int]:
             "expiresIn": ttl,
         }
     ), 200
+
+
+@auth_bp.post("/logout")
+def logout() -> tuple[str, int]:
+    """Revoke the current access token and optional refresh token."""
+    store: Any = current_app.config.get("STORE")
+    payload = getattr(g, "jwt_payload", {})
+    actor = getattr(g, "actor", {})
+    access_jti = str(payload.get("jti", ""))
+    access_exp = payload.get("exp")
+    if not store or not access_jti or not isinstance(access_exp, int):
+        raise Unauthenticated("Invalid access session")
+
+    store.revoke_access_token(
+        jti=access_jti,
+        user_id=str(actor.get("id", "")),
+        expires_at=datetime.fromtimestamp(access_exp, UTC),
+    )
+
+    if request.data:
+        if not request.is_json:
+            raise ValidationError("Request body must be JSON")
+        body = request.get_json(silent=False)
+        if not isinstance(body, dict) or set(body) != {"refreshToken"}:
+            raise ValidationError("Request body must contain only 'refreshToken'")
+        refresh_token = body.get("refreshToken")
+        if not isinstance(refresh_token, str):
+            raise ValidationError("'refreshToken' must be a string")
+        refresh_payload = decode_refresh_token(
+            refresh_token, str(current_app.config.get("JWT_SECRET", ""))
+        )
+        if str(refresh_payload.get("sub")) != str(actor.get("id")):
+            raise Unauthenticated("Refresh token owner mismatch")
+        store.revoke_refresh_session(str(refresh_payload.get("jti", "")))
+
+    return "", 204
+
+
+@auth_bp.get("/oauth/<provider>/start")
+def oauth_start(provider: str) -> tuple[Response, int]:
+    """Start a configured OAuth sandbox flow with state and PKCE S256."""
+    provider_name = provider.lower()
+    providers = current_app.config.get("OAUTH_PROVIDERS", {})
+    config = providers.get(provider_name) if isinstance(providers, dict) else None
+    if not isinstance(config, dict):
+        raise ValidationError("OAuth provider is not configured")
+
+    required = {"client_id", "authorization_endpoint", "redirect_uri"}
+    if not required.issubset(config):
+        raise ValidationError("OAuth provider configuration is incomplete")
+
+    state = secrets.token_urlsafe(32)
+    verifier = secrets.token_urlsafe(48)
+    challenge = urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    store: Any = current_app.config.get("STORE")
+    store.create_oauth_state(
+        state_hash=hashlib.sha256(state.encode()).hexdigest(),
+        provider=provider_name,
+        code_verifier=verifier,
+        expires_at=datetime.now(UTC) + timedelta(minutes=10),
+    )
+    query = urlencode(
+        {
+            "client_id": config["client_id"],
+            "redirect_uri": config["redirect_uri"],
+            "response_type": "code",
+            "scope": config.get("scope", "openid email profile"),
+            "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+    )
+    response = jsonify(
+        {
+            "provider": provider_name,
+            "authorizationUrl": f"{config['authorization_endpoint']}?{query}",
+        }
+    )
+    response.set_cookie(
+        "oauth_state",
+        state,
+        max_age=600,
+        httponly=True,
+        secure=bool(current_app.config.get("OAUTH_COOKIE_SECURE", not current_app.testing)),
+        samesite="Lax",
+    )
+    return response, 200
+
+
+@auth_bp.get("/oauth/<provider>/callback")
+def oauth_callback(provider: str) -> tuple[Response, int]:
+    """Validate OAuth state, exchange a sandbox code and create a local session."""
+    provider_name = provider.lower()
+    state = request.args.get("state", "")
+    code = request.args.get("code", "")
+    cookie_state = request.cookies.get("oauth_state", "")
+    if not state or not code or not secrets.compare_digest(state, cookie_state):
+        raise Unauthenticated("OAuth state validation failed")
+
+    store: Any = current_app.config.get("STORE")
+    state_record = store.consume_oauth_state(
+        hashlib.sha256(state.encode()).hexdigest(), provider_name
+    )
+    if state_record is None:
+        raise Unauthenticated("OAuth state expired or replayed")
+
+    providers = current_app.config.get("OAUTH_PROVIDERS", {})
+    config = providers.get(provider_name) if isinstance(providers, dict) else None
+    exchange = current_app.config.get("OAUTH_EXCHANGE")
+    if not isinstance(config, dict) or not callable(exchange):
+        raise ValidationError("OAuth sandbox exchange is not configured")
+    profile = exchange(
+        provider_name,
+        code,
+        str(state_record["code_verifier"]),
+        str(config["redirect_uri"]),
+    )
+    if not isinstance(profile, dict):
+        raise Unauthenticated("OAuth provider returned an invalid profile")
+    subject = str(profile.get("subject", "")).strip()
+    email = schemas.validate_email_format(profile.get("email"))
+    if not subject or profile.get("email_verified") is not True:
+        raise Unauthenticated("OAuth email is not verified")
+
+    linked_user_id = store.get_oauth_identity(provider_name, subject)
+    user = store.get_user_by_id(linked_user_id) if linked_user_id else None
+    if user is None:
+        if store.get_user_by_email(email) is not None:
+            from lms_project_1.errors import ConflictError
+
+            raise ConflictError("Sign in first to link this OAuth identity")
+        user = store.create_user(
+            email=email,
+            password_hash=hash_password(secrets.token_urlsafe(48)),
+            full_name=str(profile.get("name") or email.split("@", 1)[0]),
+            role="student",
+            is_active=True,
+            is_verified=True,
+        )
+        store.link_oauth_identity(provider_name, subject, str(user["id"]))
+
+    response = jsonify(_issue_oauth_token_pair(user, store))
+    response.delete_cookie("oauth_state", samesite="Lax")
+    return response, 200

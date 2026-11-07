@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -88,6 +88,9 @@ class User(Base):
         default=_utcnow,
         onupdate=_utcnow,
     )
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    locked_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     reset_tokens: Mapped[list[PasswordResetToken]] = relationship(
         "PasswordResetToken",
@@ -108,6 +111,9 @@ class User(Base):
             "is_verified": self.is_verified,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "locked_at": self.locked_at.isoformat() if self.locked_at else None,
+            "locked_reason": self.locked_reason,
+            "deleted_at": self.deleted_at.isoformat() if self.deleted_at else None,
         }
         if include_sensitive:
             data["password_hash"] = self.hashed_password
@@ -154,6 +160,57 @@ class PasswordResetToken(Base):
     user: Mapped[User] = relationship("User", back_populates="reset_tokens")
 
 
+class RefreshSession(Base):
+    """Rotating refresh-token session; only a SHA-256 token hash is stored."""
+
+    __tablename__ = "refresh_sessions"
+
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    family_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    replaced_by_jti: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
+class RevokedAccessToken(Base):
+    """Short-lived deny-list entry for access-token logout."""
+
+    __tablename__ = "revoked_access_tokens"
+
+    jti: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
+class OAuthIdentity(Base):
+    """External OAuth subject linked to exactly one local user."""
+
+    __tablename__ = "oauth_identities"
+    __table_args__ = (UniqueConstraint("provider", "subject", name="uq_oauth_provider_subject"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    provider: Mapped[str] = mapped_column(String(20), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
 class Course(Base):
     """Courses table for LMS academic content."""
 
@@ -165,6 +222,35 @@ class Course(Base):
         String(36),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
+    )
+    category_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("course_categories.id", ondelete="SET NULL"), nullable=True
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    thumbnail: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
+    duration_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    price: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="DRAFT")
+    is_visible: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    rejection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+
+class CourseCategory(Base):
+    """Admin-managed course catalog category."""
+
+    __tablename__ = "course_categories"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    slug: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
     )
 
 
@@ -184,6 +270,11 @@ class Enrollment(Base):
         primary_key=True,
     )
     score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
+    enrolled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    activated_by_order_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class Assignment(Base):
@@ -396,13 +487,118 @@ class Lesson(Base):
         nullable=False,
         index=True,
     )
+    chapter_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("course_chapters.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    content_type: Mapped[str] = mapped_column(String(20), nullable=False, default="TEXT")
+    video_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=_utcnow,
+    )
+
+
+class CourseChapter(Base):
+    """Ordered chapter within a course curriculum."""
+
+    __tablename__ = "course_chapters"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    course_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
+class CourseRoadmapItem(Base):
+    """Ordered learning milestone shown on course detail."""
+
+    __tablename__ = "course_roadmap_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    course_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+
+class LessonResource(Base):
+    """Validated URL/file metadata attached to a lesson."""
+
+    __tablename__ = "lesson_resources"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    lesson_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("lessons.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    resource_url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
+class LessonProgress(Base):
+    """Idempotent per-student lesson completion record."""
+
+    __tablename__ = "lesson_progress"
+
+    course_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True
+    )
+    lesson_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("lessons.id", ondelete="CASCADE"), primary_key=True
+    )
+    student_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
+class Notification(Base):
+    """Durable in-app notification owned by one user."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(50), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
+class Certificate(Base):
+    """Immutable completion certificate, unique per student and course."""
+
+    __tablename__ = "certificates"
+    __table_args__ = (
+        UniqueConstraint("course_id", "student_id", name="uq_certificate_course_student"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    course_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("courses.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    student_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    verification_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    issued_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
     )
 
 

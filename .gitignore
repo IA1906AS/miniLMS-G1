@@ -21,6 +21,12 @@ coverage.xml
 .ruff_cache/
 .pip-audit-cache/
 .uv-cache/
+.hypothesis/
+.tox/
+.nox/
+.tmp/
+tmp/
+*.tmp
 
 # Distribution / Build
 dist/
@@ -30,14 +36,49 @@ build/
 # Logs & Environment
 *.log
 .env
+.env.*
+!.env.example
+
+# Local databases, runtime state & uploads
+*.db
+*.sqlite
+*.sqlite3
+instance/
+uploads/
+
+# Sensitive project documentation, backlog & database assets (local only)
+/docs/
+/backlog/
+/database/
+
+# Editor & operating-system metadata
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# JavaScript dependencies (only if local frontend tooling is used)
+node_modules/
 
 # Agent & AI Assistant Tooling (Kept on local disk, ignored from Git repo)
 .agents/
+.codex/
 AGENTS.md
 AGENT.md
+GOALS.md
+PLANS.md
+PROMPTS.md
+PROMPT*.md
 PROMPT_KHOI_DONG.md
-docs/agent-kit/
-docs/antigravity/
+README_CODEX_KIT.md
+KIT_MANIFEST.json
+SHA256SUMS.txt
+tests_codex_kit/
+tools/codex_kit*/
+tools/validate_codex_kit.py
 scripts/
 .gemini/
 .claude/

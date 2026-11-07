@@ -1,4 +1,4 @@
-"""Comprehensive test suite for Defensive Pattern #9: Bulkhead (B9-01 to B9-06)."""
+"""Grade-report export bulkhead and authorization tests."""
 
 from __future__ import annotations
 

@@ -27,20 +27,20 @@ jobs:
         run: uv python install
 
       - name: Install dependencies
-        run: uv sync --all-groups
+        run: uv sync --frozen --all-groups
 
       - name: Lint with Ruff
-        run: uv run ruff check .
+        run: uv run --frozen ruff check src tests
 
       - name: Format check with Ruff
-        run: uv run ruff format --check .
+        run: uv run --frozen ruff format --check src tests
 
       - name: Type check with Mypy
-        run: uv run mypy
+        run: uv run --frozen mypy src
 
       - name: Run Semgrep SAST Scan
         run: |
-          uv run semgrep scan \
+          uv run --frozen semgrep scan \
             --config=.semgrep/minilms_rules.yaml \
             --config="p/python" \
             --config="p/flask" \
@@ -57,4 +57,4 @@ jobs:
           sarif_file: semgrep.sarif
 
       - name: Run Pytest with Coverage
-        run: uv run pytest --cov
+        run: uv run --frozen pytest --cov

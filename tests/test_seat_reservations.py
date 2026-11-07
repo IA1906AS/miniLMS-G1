@@ -1,4 +1,4 @@
-"""Tests for Defensive Pattern #10: Timed Seat Reservation with Expiration (p10_reservation.py).
+"""Seat reservation capacity, expiry and ownership tests.
 
 Covers:
 1. Inspect capacity summary (GET /classes/<class_id>/capacity).
